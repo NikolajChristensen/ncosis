@@ -58,3 +58,7 @@ export async function deleteSong(id: string): Promise<void> {
 export function stemUrl(id: string, stem: string): string {
   return `/api/songs/${id}/stems/${stem}.opus`
 }
+
+export function stemsZipUrl(id: string): string {
+  return `/api/songs/${id}/stems.zip`
+}

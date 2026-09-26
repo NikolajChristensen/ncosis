@@ -2,12 +2,16 @@
 
 import logging
 import shutil
+import re
 import subprocess
+import tempfile
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from starlette.background import BackgroundTask
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -110,6 +114,37 @@ def get_stem(song_id: str, stem: str):
         config.SONGS_DIR / song_id / "stems" / f"{stem}.opus",
         media_type="audio/ogg",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+STEM_TITLES = {"lead": "Lead guitar", "rhythm": "Rhythm guitar"}
+
+
+@app.get("/api/songs/{song_id}/stems.zip")
+def download_stems(song_id: str):
+    """All stems as 16-bit FLAC in a zip, for importing into a DAW (few DAWs read Opus)."""
+    song = _song_or_404(song_id)
+    if song["status"] != "done":
+        raise HTTPException(409, "Song is not separated yet")
+    name = re.sub(r'[\\/:*?"<>|]', "_", song["title"]).strip() or song_id
+    work = Path(tempfile.mkdtemp(dir=config.DATA_DIR / "work"))
+    try:
+        archive = work / "stems.zip"
+        # FLAC is already compressed, so the zip just stores it.
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as z:
+            for stem in song["stems"]:
+                flac = work / f"{stem}.flac"
+                separation.to_flac(config.SONGS_DIR / song_id / "stems" / f"{stem}.opus", flac)
+                z.write(flac, f"{name} - {STEM_TITLES.get(stem, stem.capitalize())}.flac")
+                flac.unlink()
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    return FileResponse(
+        archive,
+        media_type="application/zip",
+        filename=f"{name} - stems.zip",
+        background=BackgroundTask(shutil.rmtree, work, ignore_errors=True),
     )
 
 

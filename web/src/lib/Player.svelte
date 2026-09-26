@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { getSong, stemUrl, type Song } from './api'
+  import { getSong, stemsZipUrl, stemUrl, type Song } from './api'
   import { MIN_LOOP, StemPlayer, type Loop, type Stem } from './engine'
   import Waveform from './Waveform.svelte'
 
@@ -232,6 +232,11 @@
 <header>
   <a href="#/" class="back" aria-label="Back to library">←</a>
   <h1>{song?.title ?? ''}</h1>
+  {#if song?.status === 'done'}
+    <a class="download" href={stemsZipUrl(id)} download title="Download all stems (FLAC, zip)" aria-label="Download all stems">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3V3zM5 18h14v2H5z" /></svg>
+    </a>
+  {/if}
 </header>
 
 {#if error}
@@ -344,6 +349,22 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .download {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: inherit;
+    border: 1px solid var(--muted);
+  }
+  .download svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
   }
   .back {
     font-size: 1.5rem;

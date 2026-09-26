@@ -41,6 +41,13 @@ def to_opus(src: Path, dst: Path):
     )
 
 
+def to_flac(src: Path, dst: Path):
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-c:a", "flac", "-sample_fmt", "s16", "-ar", "44100", str(dst)],
+        check=True, capture_output=True,
+    )
+
+
 def _get_separator():
     """Load the model once; it takes a while and is reused for every song."""
     global _separator
