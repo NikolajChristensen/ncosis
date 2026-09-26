@@ -14,16 +14,10 @@ export interface Stem {
   peaks: Float32Array
 }
 
-/** Waveform resolution in bins per second; fine enough for the zoomed loop editor. */
+/** Waveform resolution in bins per second. */
 export const PEAK_RATE = 50
 
 export interface Loop {
-  start: number
-  end: number
-}
-
-/** A visible time range of a waveform, in seconds. */
-export interface View {
   start: number
   end: number
 }
@@ -58,6 +52,9 @@ export class StemPlayer {
   onEnded: (() => void) | null = null
 
   private loop: Loop | null = null
+  // Whether the running sources loop. False while playing past the loop end (after a seek
+  // there), so the song simply plays on; the loop applies again once playback is before B.
+  private looping = false
   // All stem gains feed this bus, which goes either straight out or through `stretch`.
   private bus = this.ctx.createGain()
   private stretch: (AudioNode & { schedule(o: object): void; stop(): void }) | null = null
@@ -94,9 +91,11 @@ export class StemPlayer {
     if (!this.playing) return this.offset
     const raw = this.offset + Math.max(0, this.ctx.currentTime - this.startedAt)
     const loop = this.loop
-    // Playback started at or before the loop start (see play/seek), so once it
-    // reaches the loop end it cycles between start and end.
-    if (loop && raw >= loop.end) return loop.start + ((raw - loop.start) % (loop.end - loop.start))
+    // While looping, playback started before the loop end, so once it reaches
+    // the loop end it cycles between start and end.
+    if (this.looping && loop && raw >= loop.end) {
+      return loop.start + ((raw - loop.start) % (loop.end - loop.start))
+    }
     return Math.min(raw, this.duration)
   }
 
@@ -106,36 +105,32 @@ export class StemPlayer {
     if (!this.playing || !this.routedThroughStretch) return pos
     const heard = pos - this.stretchLatency
     // Just after a loop wrap, what you hear is still the end of the loop.
-    if (this.loop && pos - this.loop.start < this.stretchLatency && heard < this.loop.start) {
+    if (this.looping && this.loop && pos - this.loop.start < this.stretchLatency && heard < this.loop.start) {
       return this.loop.end - (this.loop.start - heard)
     }
     return Math.max(0, heard)
   }
 
-  /** Loop all stems between two points, gaplessly. `null` turns looping off. */
+  /**
+   * Loop all stems between two points, gaplessly. `null` turns looping off.
+   * Playback continues from where it is; past the loop end it plays on without looping.
+   */
   setLoop(loop: Loop | null) {
     const pos = this.position
     this.loop = loop
-    if (this.playing) {
-      // Past the loop end, the sources would wrap somewhere we can't track; restart at A.
-      if (loop && pos >= loop.end) {
-        this.seek(loop.start)
-        return
-      }
-      // Re-base the position clock so `position` stays correct under the new loop.
-      this.offset = pos
-      this.startedAt = Math.max(this.ctx.currentTime, this.startedAt)
-      for (const src of this.sources) this.applyLoop(src)
-    } else if (loop && pos >= loop.end) {
-      this.offset = loop.start
-    }
+    if (!this.playing) return
+    // Re-base the position clock so `position` stays correct under the new loop.
+    this.offset = pos
+    this.startedAt = Math.max(this.ctx.currentTime, this.startedAt)
+    this.looping = loop !== null && pos < loop.end
+    for (const src of this.sources) this.applyLoop(src)
   }
 
   async play() {
     if (this.playing) return
     await this.ctx.resume()
     if (this.offset >= this.duration) this.offset = 0
-    if (this.loop && this.offset >= this.loop.end) this.offset = this.loop.start
+    this.looping = this.loop !== null && this.offset < this.loop.end
     // Small lead time so every source starts on exactly the same sample.
     const when = this.ctx.currentTime + 0.05
     this.sources = this.stems.map((stem) => {
@@ -166,12 +161,11 @@ export class StemPlayer {
     this.playing = false
   }
 
-  /** Jump to `time`. With a loop active, a time after the loop end jumps to the loop start. */
+  /** Jump to `time`. After the loop end, playback continues without looping. */
   seek(time: number) {
     const wasPlaying = this.playing
     this.pause()
     this.offset = Math.max(0, Math.min(time, this.duration))
-    if (this.loop && this.offset >= this.loop.end) this.offset = this.loop.start
     if (wasPlaying) this.play()
   }
 
@@ -226,7 +220,7 @@ export class StemPlayer {
   }
 
   private applyLoop(src: AudioBufferSourceNode) {
-    src.loop = this.loop !== null
+    src.loop = this.looping
     if (this.loop) {
       src.loopStart = this.loop.start
       src.loopEnd = this.loop.end

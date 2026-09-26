@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { getSong, stemUrl, type Song } from './api'
-  import { MIN_LOOP, StemPlayer, type Loop, type Stem, type View } from './engine'
+  import { MIN_LOOP, StemPlayer, type Loop, type Stem } from './engine'
   import Waveform from './Waveform.svelte'
 
   let { id }: { id: string } = $props()
@@ -155,6 +155,9 @@
     if (loopA === null || t < loopA + MIN_LOOP) return
     loopB = t
     loopEnabled = true
+    // Start looping right away instead of playing on past the new end point.
+    player.setLoop({ start: loopA, end: t })
+    player.seek(loopA)
   }
 
   function nudge(point: 'a' | 'b', delta: number) {
@@ -169,14 +172,6 @@
     loopA = loopB = null
     loopEnabled = false
   }
-
-  // Zoomed view for editing the loop: the loop plus some context on each side.
-  const loopView = $derived.by<View | null>(() => {
-    if (loopA === null) return null
-    const [from, to] = loopB === null ? [loopA - 2, loopA + 10] : [loopA, loopB]
-    const pad = Math.max(1, (to - from) * 0.25)
-    return { start: Math.max(0, from - pad), end: Math.min(player.duration, to + pad) }
-  })
 
   function toStart() {
     player.seek(loopA ?? 0)
@@ -247,13 +242,16 @@
   <section class="transport">
     <Waveform
       peaks={mixPeaks}
-      view={{ start: 0, end: player.duration }}
+      duration={player.duration}
       {position}
       {loopA}
       {loopB}
       {loopEnabled}
-      height={72}
       onseek={(t) => player.seek(t)}
+      onloopchange={(a, b) => {
+        loopA = clampTime(a)
+        loopB = b === null ? null : clampTime(b)
+      }}
     />
     <div class="time">
       <span>{fmt(position)}</span>
@@ -285,33 +283,14 @@
   </section>
 
   <section class="loop">
-    {#if loopView}
-      <div class="loop-editor">
-        <Waveform
-          peaks={mixPeaks}
-          view={loopView}
-          {position}
-          {loopA}
-          {loopB}
-          {loopEnabled}
-          editLoop
-          onseek={(t) => player.seek(t)}
-          onloopchange={(a, b) => {
-            loopA = clampTime(a)
-            loopB = b === null ? null : clampTime(b)
-          }}
-        />
-        <p class="hint-small">Drag A/B along the top strip · tap below to move the playhead</p>
-      </div>
-    {/if}
     <div class="point">
-      <button class="set" class:on={loopA !== null} onclick={setA} aria-label="Set loop start">A</button>
+      <button class="set" class:on={loopA !== null} onclick={setA} >Set A</button>
       <span class="t">{fmtPrecise(loopA)}</span>
       <button class="nudge" onclick={() => nudge('a', -0.1)} disabled={loopA === null} aria-label="Loop start earlier">‹</button>
       <button class="nudge" onclick={() => nudge('a', 0.1)} disabled={loopA === null} aria-label="Loop start later">›</button>
     </div>
     <div class="point">
-      <button class="set" class:on={loopB !== null} onclick={setB} disabled={loopA === null} aria-label="Set loop end">B</button>
+      <button class="set" class:on={loopB !== null} onclick={setB} disabled={loopA === null} >Set B</button>
       <span class="t">{fmtPrecise(loopB)}</span>
       <button class="nudge" onclick={() => nudge('b', -0.1)} disabled={loopB === null} aria-label="Loop end earlier">‹</button>
       <button class="nudge" onclick={() => nudge('b', 0.1)} disabled={loopB === null} aria-label="Loop end later">›</button>
@@ -457,18 +436,9 @@
     background: var(--surface);
     border-radius: 12px;
     padding: 10px 12px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .loop-editor {
-    grid-column: 1 / -1;
-  }
-  .hint-small {
-    margin: 4px 0 0;
-    font-size: 0.75rem;
-    color: var(--muted-text);
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   .point {
     display: flex;
@@ -480,9 +450,10 @@
     font-size: 0.85rem;
     color: var(--muted-text);
     min-width: 3.6em;
+    flex: 1;
   }
   .set {
-    width: 40px;
+    width: 76px;
     height: 40px;
     border-radius: 8px;
     font-weight: 700;
@@ -492,13 +463,12 @@
     color: var(--accent);
   }
   .nudge {
-    width: 30px;
+    width: 40px;
     height: 40px;
     border-radius: 8px;
     padding: 0;
   }
   .loop-actions {
-    grid-column: 1 / -1;
     display: flex;
     gap: 8px;
   }
