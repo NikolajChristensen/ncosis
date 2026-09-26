@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { getSong, stemUrl, type Song } from './api'
-  import { PEAK_BINS, StemPlayer, type Stem } from './engine'
+  import { MIN_LOOP, PEAK_BINS, StemPlayer, type Loop, type Stem } from './engine'
   import Waveform from './Waveform.svelte'
 
   let { id }: { id: string } = $props()
@@ -20,7 +20,22 @@
   let mix = $state<Record<string, Mix>>({})
   const anySolo = $derived(Object.values(mix).some((m) => m.solo))
 
+  // A-B loop. A can be set on its own; the loop exists once both points are set.
+  let loopA = $state<number | null>(null)
+  let loopB = $state<number | null>(null)
+  let loopEnabled = $state(false)
+  const loop = $derived<Loop | null>(loopA !== null && loopB !== null ? { start: loopA, end: loopB } : null)
+  const loopKey = $derived(`ncosis:loop:${id}`)
+
+  // Transpose in semitones, remembered per song (e.g. -1 for songs in Eb tuning).
+  const MAX_SEMITONES = 12
+  let semitones = $state(0)
+  let pitchError = $state('')
+  const pitchKey = $derived(`ncosis:pitch:${id}`)
+
   const player = new StemPlayer()
+  // Handy for poking at playback from the devtools console.
+  if (import.meta.env.DEV) Object.assign(window, { player })
   let wakeLock: WakeLockSentinel | null = null
   let raf = 0
 
@@ -38,6 +53,10 @@
         (n) => (loaded = n),
       )
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
+      restoreLoop()
+      try {
+        semitones = Number(localStorage.getItem(pitchKey)) || 0
+      } catch {}
       ready = true
     } catch (e) {
       error = (e as Error).message
@@ -46,7 +65,7 @@
   init()
 
   function tick() {
-    position = player.position
+    position = player.heardPosition
     raf = requestAnimationFrame(tick)
   }
   raf = requestAnimationFrame(tick)
@@ -77,6 +96,77 @@
       holdWakeLock()
     }
     playing = player.playing
+  }
+
+  // Keep the engine and the saved copy in sync with the loop state.
+  $effect(() => {
+    if (!ready) return
+    player.setLoop(loopEnabled ? loop : null)
+    position = player.heardPosition
+    try {
+      localStorage.setItem(loopKey, JSON.stringify({ a: loopA, b: loopB, enabled: loopEnabled }))
+    } catch {}
+  })
+
+  $effect(() => {
+    if (!ready) return
+    const st = semitones
+    player.setSemitones(st).then(
+      // Falling back to 0 after a failure succeeds too; keep the message in that case.
+      () => st !== 0 && (pitchError = ''),
+      (e) => {
+        pitchError = `Transpose ${e.message}`
+        semitones = 0
+      },
+    )
+    try {
+      localStorage.setItem(pitchKey, String(semitones))
+    } catch {}
+  })
+
+  function transpose(delta: number) {
+    semitones = Math.max(-MAX_SEMITONES, Math.min(MAX_SEMITONES, semitones + delta))
+  }
+
+  function restoreLoop() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(loopKey) ?? 'null')
+      if (!saved) return
+      loopA = saved.a
+      loopB = saved.b
+      loopEnabled = saved.enabled && saved.a !== null && saved.b !== null
+    } catch {}
+  }
+
+  const clampTime = (t: number) => Math.round(Math.max(0, Math.min(t, player.duration)) * 100) / 100
+
+  function setA() {
+    const t = clampTime(player.heardPosition)
+    loopA = t
+    if (loopB !== null && loopB < t + MIN_LOOP) {
+      loopB = null
+      loopEnabled = false
+    }
+  }
+
+  function setB() {
+    const t = clampTime(player.heardPosition)
+    if (loopA === null || t < loopA + MIN_LOOP) return
+    loopB = t
+    loopEnabled = true
+  }
+
+  function nudge(point: 'a' | 'b', delta: number) {
+    if (point === 'a' && loopA !== null) {
+      loopA = clampTime(Math.min(loopA + delta, (loopB ?? Infinity) - MIN_LOOP))
+    } else if (point === 'b' && loopB !== null) {
+      loopB = clampTime(Math.max(loopB + delta, (loopA ?? 0) + MIN_LOOP))
+    }
+  }
+
+  function clearLoop() {
+    loopA = loopB = null
+    loopEnabled = false
   }
 
   function skip(seconds: number) {
@@ -116,6 +206,13 @@
     return peaks
   })
 
+  function fmtPrecise(t: number | null): string {
+    if (t === null) return '–:––.–'
+    const m = Math.floor(t / 60)
+    const s = (t % 60).toFixed(1).padStart(4, '0')
+    return `${m}:${s}`
+  }
+
   function fmt(t: number): string {
     const m = Math.floor(t / 60)
     const s = Math.floor(t % 60)
@@ -134,7 +231,18 @@
   <p class="hint">Loading stems… {loaded}/{song?.stems.length ?? '?'}</p>
 {:else}
   <section class="transport">
-    <Waveform peaks={mixPeaks} {position} duration={player.duration} onseek={(t) => player.seek(t)} />
+    <Waveform
+      peaks={mixPeaks}
+      {position}
+      duration={player.duration}
+      {loop}
+      {loopEnabled}
+      onseek={(t) => player.seek(t)}
+      onloopchange={(l) => {
+        loopA = clampTime(l.start)
+        loopB = clampTime(l.end)
+      }}
+    />
     <div class="time">
       <span>{fmt(position)}</span>
       <span>{fmt(player.duration)}</span>
@@ -149,6 +257,37 @@
         {/if}
       </button>
       <button onclick={() => skip(10)} aria-label="Forward 10 seconds">+10s</button>
+    </div>
+    <div class="pitch">
+      <span class="label">Transpose</span>
+      <button onclick={() => transpose(-1)} disabled={semitones <= -MAX_SEMITONES} aria-label="Transpose down">−</button>
+      <button class="value" class:on={semitones !== 0} onclick={() => (semitones = 0)} title="Tap to reset">
+        {semitones > 0 ? '+' : ''}{semitones} st
+      </button>
+      <button onclick={() => transpose(1)} disabled={semitones >= MAX_SEMITONES} aria-label="Transpose up">+</button>
+    </div>
+    {#if pitchError}<p class="error pitch-error">{pitchError}</p>{/if}
+  </section>
+
+  <section class="loop">
+    <div class="point">
+      <button class="set" class:on={loopA !== null} onclick={setA} aria-label="Set loop start">A</button>
+      <span class="t">{fmtPrecise(loopA)}</span>
+      <button class="nudge" onclick={() => nudge('a', -0.1)} disabled={loopA === null} aria-label="Loop start earlier">‹</button>
+      <button class="nudge" onclick={() => nudge('a', 0.1)} disabled={loopA === null} aria-label="Loop start later">›</button>
+    </div>
+    <div class="point">
+      <button class="set" class:on={loopB !== null} onclick={setB} disabled={loopA === null} aria-label="Set loop end">B</button>
+      <span class="t">{fmtPrecise(loopB)}</span>
+      <button class="nudge" onclick={() => nudge('b', -0.1)} disabled={loopB === null} aria-label="Loop end earlier">‹</button>
+      <button class="nudge" onclick={() => nudge('b', 0.1)} disabled={loopB === null} aria-label="Loop end later">›</button>
+    </div>
+    <div class="loop-actions">
+      <button class="loop-toggle" class:on={loopEnabled} disabled={!loop} onclick={() => (loopEnabled = !loopEnabled)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4V7H7a3 3 0 0 0-3 3v1H2v-1a5 5 0 0 1 5-5h10V2zM7 22l-4-4 4-4v3h10a3 3 0 0 0 3-3v-1h2v1a5 5 0 0 1-5 5H7v3z" /></svg>
+        Loop {loopEnabled ? 'on' : 'off'}
+      </button>
+      <button class="clear" onclick={clearLoop} disabled={loopA === null}>Clear</button>
     </div>
   </section>
 
@@ -229,6 +368,112 @@
     background: var(--accent);
     color: var(--on-accent);
     border: none;
+  }
+  .pitch {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .pitch .label {
+    color: var(--muted-text);
+    font-size: 0.85rem;
+    margin-right: 4px;
+  }
+  .pitch button {
+    height: 40px;
+    min-width: 44px;
+    border-radius: 8px;
+    font-size: 1.1rem;
+  }
+  .pitch .value {
+    min-width: 72px;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .pitch .value.on {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .pitch-error {
+    text-align: center;
+    font-size: 0.85rem;
+    margin: 8px 0 0;
+  }
+  .pitch button:disabled {
+    opacity: 0.35;
+  }
+  .loop {
+    margin-top: 12px;
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .point {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .point .t {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+    color: var(--muted-text);
+    min-width: 3.6em;
+  }
+  .set {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    font-weight: 700;
+  }
+  .set.on {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .nudge {
+    width: 30px;
+    height: 40px;
+    border-radius: 8px;
+    padding: 0;
+  }
+  .loop-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+  }
+  .loop-toggle {
+    flex: 1;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+  .loop-toggle svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+  }
+  .loop-toggle.on {
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: transparent;
+  }
+  .clear {
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 8px;
+  }
+  .loop button:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
   .mixer-head {
     display: flex;

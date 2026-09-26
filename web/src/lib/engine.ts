@@ -1,4 +1,7 @@
 // Plays all stems of a song in sample-accurate sync, each through its own gain node.
+// The mix goes through a pitch shifter (Signalsmith Stretch) only while transposed.
+
+import SignalsmithStretch from 'signalsmith-stretch'
 
 export interface Stem {
   name: string
@@ -12,6 +15,14 @@ export interface Stem {
 }
 
 export const PEAK_BINS = 1200
+
+export interface Loop {
+  start: number
+  end: number
+}
+
+/** Shortest loop allowed, in seconds. */
+export const MIN_LOOP = 0.2
 
 function computePeaks(buffer: AudioBuffer): Float32Array {
   const peaks = new Float32Array(PEAK_BINS)
@@ -38,9 +49,21 @@ export class StemPlayer {
   playing = false
   onEnded: (() => void) | null = null
 
+  private loop: Loop | null = null
+  // All stem gains feed this bus, which goes either straight out or through `stretch`.
+  private bus = this.ctx.createGain()
+  private stretch: (AudioNode & { schedule(o: object): void; stop(): void }) | null = null
+  private stretchReady: Promise<void> | null = null
+  private routedThroughStretch = false
+  private semitones = 0
+  private stretchLatency = 0
   private sources: AudioBufferSourceNode[] = []
   private offset = 0 // song position when playback (re)started or paused
   private startedAt = 0 // ctx.currentTime matching `offset`
+
+  constructor() {
+    this.bus.connect(this.ctx.destination)
+  }
 
   async load(urls: { name: string; url: string }[], onProgress: (done: number) => void) {
     let done = 0
@@ -51,7 +74,7 @@ export class StemPlayer {
         const buffer = await this.ctx.decodeAudioData(await res.arrayBuffer())
         onProgress(++done)
         const gain = this.ctx.createGain()
-        gain.connect(this.ctx.destination)
+        gain.connect(this.bus)
         return { name, buffer, gain, volume: 1, muted: false, solo: false, peaks: computePeaks(buffer) }
       }),
     )
@@ -61,18 +84,56 @@ export class StemPlayer {
 
   get position(): number {
     if (!this.playing) return this.offset
-    return Math.min(this.offset + this.ctx.currentTime - this.startedAt, this.duration)
+    const raw = this.offset + Math.max(0, this.ctx.currentTime - this.startedAt)
+    const loop = this.loop
+    // Playback started at or before the loop start (see play/seek), so once it
+    // reaches the loop end it cycles between start and end.
+    if (loop && raw >= loop.end) return loop.start + ((raw - loop.start) % (loop.end - loop.start))
+    return Math.min(raw, this.duration)
+  }
+
+  /** The position you currently hear: the pitch shifter delays audio slightly while active. */
+  get heardPosition(): number {
+    const pos = this.position
+    if (!this.playing || !this.routedThroughStretch) return pos
+    const heard = pos - this.stretchLatency
+    // Just after a loop wrap, what you hear is still the end of the loop.
+    if (this.loop && pos - this.loop.start < this.stretchLatency && heard < this.loop.start) {
+      return this.loop.end - (this.loop.start - heard)
+    }
+    return Math.max(0, heard)
+  }
+
+  /** Loop all stems between two points, gaplessly. `null` turns looping off. */
+  setLoop(loop: Loop | null) {
+    const pos = this.position
+    this.loop = loop
+    if (this.playing) {
+      // Past the loop end, the sources would wrap somewhere we can't track; restart at A.
+      if (loop && pos >= loop.end) {
+        this.seek(loop.start)
+        return
+      }
+      // Re-base the position clock so `position` stays correct under the new loop.
+      this.offset = pos
+      this.startedAt = Math.max(this.ctx.currentTime, this.startedAt)
+      for (const src of this.sources) this.applyLoop(src)
+    } else if (loop && pos >= loop.end) {
+      this.offset = loop.start
+    }
   }
 
   async play() {
     if (this.playing) return
     await this.ctx.resume()
     if (this.offset >= this.duration) this.offset = 0
+    if (this.loop && this.offset >= this.loop.end) this.offset = this.loop.start
     // Small lead time so every source starts on exactly the same sample.
     const when = this.ctx.currentTime + 0.05
     this.sources = this.stems.map((stem) => {
       const src = this.ctx.createBufferSource()
       src.buffer = stem.buffer
+      this.applyLoop(src)
       src.connect(stem.gain)
       src.start(when, this.offset)
       return src
@@ -97,10 +158,12 @@ export class StemPlayer {
     this.playing = false
   }
 
+  /** Jump to `time`. With a loop active, a time after the loop end jumps to the loop start. */
   seek(time: number) {
     const wasPlaying = this.playing
     this.pause()
     this.offset = Math.max(0, Math.min(time, this.duration))
+    if (this.loop && this.offset >= this.loop.end) this.offset = this.loop.start
     if (wasPlaying) this.play()
   }
 
@@ -114,9 +177,52 @@ export class StemPlayer {
     }
   }
 
+  /** Transpose the whole mix by `semitones` without changing tempo. 0 bypasses the shifter. */
+  async setSemitones(semitones: number) {
+    this.semitones = semitones
+    if (semitones !== 0 && !this.stretch) {
+      // AudioWorklet (which the shifter runs on) only exists on HTTPS or localhost.
+      if (!this.ctx.audioWorklet) throw new Error('needs the app to be opened over HTTPS')
+      this.stretchReady ??= (async () => {
+        const node = await SignalsmithStretch(this.ctx, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] })
+        node.connect(this.ctx.destination)
+        this.stretchLatency = await node.latency()
+        this.stretch = node
+      })()
+      await this.stretchReady
+    }
+    // Re-read: another call may have changed it while the shifter was loading.
+    const st = this.semitones
+    const stretch = this.stretch
+    if (!stretch) return
+    if (st === 0) {
+      if (this.routedThroughStretch) {
+        this.bus.disconnect()
+        this.bus.connect(this.ctx.destination)
+        stretch.stop()
+        this.routedThroughStretch = false
+      }
+      return
+    }
+    stretch.schedule({ active: true, semitones: st })
+    if (!this.routedThroughStretch) {
+      this.bus.disconnect()
+      this.bus.connect(stretch)
+      this.routedThroughStretch = true
+    }
+  }
+
   async close() {
     this.stopSources()
     await this.ctx.close()
+  }
+
+  private applyLoop(src: AudioBufferSourceNode) {
+    src.loop = this.loop !== null
+    if (this.loop) {
+      src.loopStart = this.loop.start
+      src.loopEnd = this.loop.end
+    }
   }
 
   private stopSources() {
