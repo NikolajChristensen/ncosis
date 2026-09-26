@@ -23,6 +23,10 @@ DEMUCS_SHIFTS = int(os.environ.get("NCOSIS_DEMUCS_SHIFTS", "1"))
 # Stems are delivered to the phone as Opus to keep downloads small.
 STEM_BITRATE = os.environ.get("NCOSIS_STEM_BITRATE", "160k")
 
+# Public certificate of a private CA (deploy/make-certs.sh), offered at /ca.crt so phones can
+# install it. Only the certificate is served, never a key.
+CA_CERT = Path(os.environ.get("NCOSIS_CA_CERT", DATA_DIR / "tls" / "ca.crt"))
+
 MAX_UPLOAD_BYTES = int(os.environ.get("NCOSIS_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 
 

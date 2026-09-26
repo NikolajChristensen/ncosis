@@ -38,6 +38,14 @@ git clone <repo> /opt/ncosis
 
 Data lives in `/var/lib/ncosis`. The app serves on port 8000.
 
+### HTTPS without a domain
+
+`deploy/make-certs.sh <dir> <server-ip>` creates a private CA and a server certificate. The CA is
+name-constrained to private IPs and `localhost`, so it can't vouch for real websites. Serve with
+`uvicorn ... --ssl-keyfile <dir>/server.key --ssl-certfile <dir>/server.crt`; the app offers the CA at
+`/ca.crt` for installing on the phone (Android: Settings → Security → Install a certificate → CA certificate).
+In development, `backend/data/tls` is used and the Vite proxy talks HTTPS to the backend.
+
 Installing the PWA on Android (and the screen wake lock) needs HTTPS. Put a reverse proxy such as Caddy in front,
 with a certificate the phone trusts (DNS challenge for a real domain, or a local CA installed on the phone).
 Plain HTTP over WireGuard still works in the browser for testing.

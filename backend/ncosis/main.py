@@ -113,5 +113,12 @@ def get_stem(song_id: str, stem: str):
     )
 
 
+@app.get("/ca.crt")
+def get_ca_cert():
+    if not config.CA_CERT.is_file():
+        raise HTTPException(404, "No local CA configured")
+    return FileResponse(config.CA_CERT, media_type="application/x-x509-ca-cert", filename="ncosis-ca.crt")
+
+
 if config.WEB_DIST.is_dir():
     app.mount("/", StaticFiles(directory=config.WEB_DIST, html=True), name="web")

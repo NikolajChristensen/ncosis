@@ -30,6 +30,7 @@ export default defineConfig({
   ],
   server: {
     host: true,
-    proxy: { '/api': 'http://localhost:8000' },
+    // The backend serves HTTPS with a private CA; don't verify it in dev.
+    proxy: { '/api': { target: 'https://localhost:8000', secure: false } },
   },
 })
