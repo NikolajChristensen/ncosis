@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { getSong, stemUrl, type Song } from './api'
-  import { MIN_LOOP, PEAK_BINS, StemPlayer, type Loop, type Stem } from './engine'
+  import { MIN_LOOP, StemPlayer, type Loop, type Stem, type View } from './engine'
   import Waveform from './Waveform.svelte'
 
   let { id }: { id: string } = $props()
 
-  const STEM_ORDER = ['vocals', 'guitar', 'bass', 'drums', 'piano', 'other']
+  const STEM_ORDER = ['vocals', 'lead', 'rhythm', 'guitar', 'bass', 'drums', 'piano', 'other']
+  const STEM_LABELS: Record<string, string> = { lead: 'Lead gtr', rhythm: 'Rhythm gtr' }
 
   let song = $state<Song | null>(null)
   let error = $state('')
@@ -169,6 +170,18 @@
     loopEnabled = false
   }
 
+  // Zoomed view for editing the loop: the loop plus some context on each side.
+  const loopView = $derived.by<View | null>(() => {
+    if (loopA === null) return null
+    const [from, to] = loopB === null ? [loopA - 2, loopA + 10] : [loopA, loopB]
+    const pad = Math.max(1, (to - from) * 0.25)
+    return { start: Math.max(0, from - pad), end: Math.min(player.duration, to + pad) }
+  })
+
+  function toStart() {
+    player.seek(loopA ?? 0)
+  }
+
   function skip(seconds: number) {
     player.seek(player.position + seconds)
   }
@@ -197,11 +210,12 @@
   }
 
   const mixPeaks = $derived.by(() => {
-    const peaks = new Float32Array(PEAK_BINS)
-    if (!ready) return peaks
+    if (!ready) return new Float32Array(0)
+    const peaks = new Float32Array(Math.max(...player.stems.map((s) => s.peaks.length)))
     for (const stem of player.stems) {
       if (!isAudible(stem.name)) continue
-      for (let i = 0; i < PEAK_BINS; i++) peaks[i] += stem.peaks[i] * mix[stem.name].volume
+      const vol = mix[stem.name].volume
+      for (let i = 0; i < stem.peaks.length; i++) peaks[i] += stem.peaks[i] * vol
     }
     return peaks
   })
@@ -233,21 +247,22 @@
   <section class="transport">
     <Waveform
       peaks={mixPeaks}
+      view={{ start: 0, end: player.duration }}
       {position}
-      duration={player.duration}
-      {loop}
+      {loopA}
+      {loopB}
       {loopEnabled}
+      height={72}
       onseek={(t) => player.seek(t)}
-      onloopchange={(l) => {
-        loopA = clampTime(l.start)
-        loopB = clampTime(l.end)
-      }}
     />
     <div class="time">
       <span>{fmt(position)}</span>
       <span>{fmt(player.duration)}</span>
     </div>
     <div class="buttons">
+      <button class="icon" onclick={toStart} aria-label={loopA !== null ? 'Back to loop start' : 'Back to start'}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="2.5" height="14" rx="1" /><path d="M19 6.2v11.6a1 1 0 0 1-1.54.84L9.3 13.3a1.5 1.5 0 0 1 0-2.6l8.16-5.34A1 1 0 0 1 19 6.2z" /></svg>
+      </button>
       <button onclick={() => skip(-10)} aria-label="Back 10 seconds">−10s</button>
       <button class="play" onclick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
         {#if playing}
@@ -270,6 +285,25 @@
   </section>
 
   <section class="loop">
+    {#if loopView}
+      <div class="loop-editor">
+        <Waveform
+          peaks={mixPeaks}
+          view={loopView}
+          {position}
+          {loopA}
+          {loopB}
+          {loopEnabled}
+          editLoop
+          onseek={(t) => player.seek(t)}
+          onloopchange={(a, b) => {
+            loopA = clampTime(a)
+            loopB = b === null ? null : clampTime(b)
+          }}
+        />
+        <p class="hint-small">Drag A/B along the top strip · tap below to move the playhead</p>
+      </div>
+    {/if}
     <div class="point">
       <button class="set" class:on={loopA !== null} onclick={setA} aria-label="Set loop start">A</button>
       <span class="t">{fmtPrecise(loopA)}</span>
@@ -299,7 +333,7 @@
     {#each player.stems as stem (stem.name)}
       {@const m = mix[stem.name]}
       <div class="stem" class:silent={!isAudible(stem.name)}>
-        <span class="name">{stem.name}</span>
+        <span class="name">{STEM_LABELS[stem.name] ?? stem.name}</span>
         <button class="toggle" class:on={m.muted} onclick={() => change(stem, { muted: !m.muted })}>M</button>
         <button class="toggle solo" class:on={m.solo} onclick={() => change(stem, { solo: !m.solo })}>S</button>
         <input
@@ -355,8 +389,21 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 24px;
+    gap: 16px;
     margin-top: 8px;
+  }
+  .icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    padding: 0;
+  }
+  .icon svg {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
   }
   .play {
     width: 64px;
@@ -413,6 +460,15 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+  }
+  .loop-editor {
+    grid-column: 1 / -1;
+  }
+  .hint-small {
+    margin: 4px 0 0;
+    font-size: 0.75rem;
+    color: var(--muted-text);
+    text-align: center;
   }
   .point {
     display: flex;
@@ -505,7 +561,7 @@
   }
   .stem {
     display: grid;
-    grid-template-columns: 5.5em 44px 44px 1fr;
+    grid-template-columns: 6.5em 44px 44px 1fr;
     align-items: center;
     gap: 8px;
     background: var(--surface);

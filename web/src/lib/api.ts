@@ -11,6 +11,11 @@ export interface Song {
   created_at: number
   started_at: number | null
   finished_at: number | null
+  notes: string | null
+}
+
+export interface ServerConfig {
+  guitarSplit: boolean
 }
 
 async function check(res: Response): Promise<Response> {
@@ -22,6 +27,10 @@ async function check(res: Response): Promise<Response> {
     throw new Error(detail)
   }
   return res
+}
+
+export async function getConfig(): Promise<ServerConfig> {
+  return (await check(await fetch('/api/config'))).json()
 }
 
 export async function listSongs(): Promise<Song[]> {

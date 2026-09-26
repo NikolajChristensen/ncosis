@@ -24,3 +24,18 @@ DEMUCS_SHIFTS = int(os.environ.get("NCOSIS_DEMUCS_SHIFTS", "1"))
 STEM_BITRATE = os.environ.get("NCOSIS_STEM_BITRATE", "160k")
 
 MAX_UPLOAD_BYTES = int(os.environ.get("NCOSIS_MAX_UPLOAD_MB", "200")) * 1024 * 1024
+
+
+def _secret(env: str, filename: str) -> str | None:
+    """Read a secret from an environment variable, or from a file in the data dir."""
+    if value := os.environ.get(env):
+        return value.strip()
+    path = DATA_DIR / filename
+    return path.read_text().strip() or None if path.is_file() else None
+
+
+
+def mvsep_token() -> str | None:
+    """MVSEP (mvsep.com) API token for lead/rhythm guitar splitting. Optional; read on each
+    use so adding the token file takes effect without a restart."""
+    return _secret("NCOSIS_MVSEP_TOKEN", "mvsep_token")

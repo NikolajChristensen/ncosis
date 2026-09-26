@@ -1,34 +1,45 @@
 <script lang="ts">
-  import { MIN_LOOP, PEAK_BINS, type Loop } from './engine'
+  import { MIN_LOOP, PEAK_RATE, type View } from './engine'
 
   let {
     peaks,
+    view,
     position,
-    duration,
-    loop,
+    loopA,
+    loopB,
     loopEnabled,
+    editLoop = false,
+    height = 96,
     onseek,
     onloopchange,
   }: {
     peaks: Float32Array
+    view: View
     position: number
-    duration: number
-    loop: Loop | null
+    loopA: number | null
+    loopB: number | null
     loopEnabled: boolean
+    /** Show the handle strip on top, where A/B are dragged. Elsewhere, a touch always seeks. */
+    editLoop?: boolean
+    height?: number
     onseek: (time: number) => void
-    onloopchange: (loop: Loop) => void
+    onloopchange?: (a: number, b: number | null) => void
   } = $props()
 
-  // How close (px) a touch must be to a loop handle to grab it.
-  const HANDLE_GRAB = 20
+  const LANE = 26 // height of the handle strip
+  const TAB_W = 26
 
   let canvas: HTMLCanvasElement
   let width = $state(0)
-  let height = $state(0)
-  let drag: 'seek' | 'start' | 'end' | null = null
+  let drag: 'seek' | 'a' | 'b' | null = null
+  // The view is frozen while a handle is dragged, so the handle doesn't run away from the finger.
+  let frozenView = $state<View | null>(null)
+  const activeView = $derived(frozenView ?? view)
 
   $effect(() => {
-    if (!canvas || !width || !height) return
+    if (!canvas || !width) return
+    const { start, end } = activeView
+    const span = Math.max(end - start, 0.001)
     const dpr = window.devicePixelRatio || 1
     canvas.width = width * dpr
     canvas.height = height * dpr
@@ -36,95 +47,117 @@
     g.scale(dpr, dpr)
 
     const styles = getComputedStyle(canvas)
-    const played = styles.getPropertyValue('--wave-played')
-    const rest = styles.getPropertyValue('--wave-rest')
-    const max = Math.max(...peaks, 0.01)
-    const mid = height / 2
-    const x = (t: number) => (duration ? (t / duration) * width : 0)
-    const playX = x(position)
-    const barW = width / PEAK_BINS
+    const accent = styles.getPropertyValue('--accent')
+    const rest = styles.getPropertyValue('--muted')
+    const text = styles.getPropertyValue('--text')
+    const bg = styles.getPropertyValue('--surface')
+    const x = (t: number) => ((t - start) / span) * width
 
-    if (loop) {
+    const top = editLoop ? LANE : 0
+    const waveH = height - top
+    const mid = top + waveH / 2
+
+    if (loopA !== null && loopB !== null) {
       g.globalAlpha = loopEnabled ? 0.22 : 0.08
-      g.fillStyle = played
-      g.fillRect(x(loop.start), 0, x(loop.end) - x(loop.start), height)
+      g.fillStyle = accent
+      g.fillRect(x(loopA), top, x(loopB) - x(loopA), waveH)
       g.globalAlpha = 1
     }
 
-    for (let i = 0; i < PEAK_BINS; i++) {
-      const bx = i * barW
-      const h = Math.max(1, (peaks[i] / max) * (height - 4))
-      g.fillStyle = bx < playX ? played : rest
-      g.fillRect(bx, mid - h / 2, Math.max(barW, 1), h)
+    // One bar per pixel column, using the loudest bin that falls in it.
+    const firstBin = Math.floor(start * PEAK_RATE)
+    const lastBin = Math.min(peaks.length, Math.ceil(end * PEAK_RATE))
+    let max = 0.01
+    for (let i = firstBin; i < lastBin; i++) if (peaks[i] > max) max = peaks[i]
+    const playX = x(position)
+    const binsPerPx = (span * PEAK_RATE) / width
+    for (let px = 0; px < width; px++) {
+      const b0 = Math.floor(firstBin + px * binsPerPx)
+      const b1 = Math.max(b0 + 1, Math.floor(firstBin + (px + 1) * binsPerPx))
+      let v = 0
+      for (let i = b0; i < b1 && i < peaks.length; i++) if (peaks[i] > v) v = peaks[i]
+      const h = Math.max(1, (v / max) * (waveH - 4))
+      g.fillStyle = px < playX ? accent : rest
+      g.fillRect(px, mid - h / 2, 1, h)
     }
 
-    if (loop) {
-      g.globalAlpha = loopEnabled ? 1 : 0.4
-      for (const [t, label] of [[loop.start, 'A'], [loop.end, 'B']] as const) {
-        const lx = x(t)
-        g.fillStyle = styles.getPropertyValue('--text')
-        g.fillRect(lx - 1, 0, 2, height)
-        // Tab at the top of the handle, pointing into the loop.
-        const tabX = label === 'A' ? lx : lx - 14
-        g.fillRect(tabX, 0, 14, 14)
-        g.fillStyle = styles.getPropertyValue('--bg')
-        g.font = 'bold 10px system-ui'
-        g.fillText(label, tabX + 3.5, 11)
+    // Loop markers, with A/B tabs in the handle strip when editing.
+    g.globalAlpha = loopEnabled || loopB === null ? 1 : 0.5
+    for (const [t, label] of [[loopA, 'A'], [loopB, 'B']] as const) {
+      if (t === null) continue
+      const lx = x(t)
+      g.fillStyle = text
+      g.fillRect(lx - 1, top, 2, waveH)
+      if (editLoop) {
+        const tabX = label === 'A' ? lx - 1 : lx - TAB_W + 1
+        g.beginPath()
+        g.roundRect(tabX, 2, TAB_W, LANE - 4, 5)
+        g.fill()
+        g.fillStyle = bg
+        g.font = 'bold 13px system-ui'
+        g.textAlign = 'center'
+        g.fillText(label, tabX + TAB_W / 2, LANE - 9)
+        g.fillStyle = text
       }
-      g.globalAlpha = 1
     }
+    g.globalAlpha = 1
 
-    g.fillStyle = played
-    g.fillRect(playX - 1, 0, 2, height)
+    if (position >= start && position <= end) {
+      g.fillStyle = accent
+      g.fillRect(playX - 1, top, 2, waveH)
+    }
   })
 
   function timeAt(e: PointerEvent): number {
     const rect = canvas.getBoundingClientRect()
-    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration
+    const { start, end } = activeView
+    const t = start + ((e.clientX - rect.left) / rect.width) * (end - start)
+    return Math.max(start, Math.min(end, t))
   }
 
-  function grab(e: PointerEvent): 'start' | 'end' | null {
-    if (!loop) return null
+  function grab(e: PointerEvent): 'a' | 'b' | 'seek' {
     const rect = canvas.getBoundingClientRect()
-    const px = e.clientX - rect.left
-    const dStart = Math.abs(px - (loop.start / duration) * rect.width)
-    const dEnd = Math.abs(px - (loop.end / duration) * rect.width)
-    if (Math.min(dStart, dEnd) > HANDLE_GRAB) return null
-    return dStart <= dEnd ? 'start' : 'end'
+    if (!editLoop || e.clientY - rect.top > LANE || loopA === null) return 'seek'
+    if (loopB === null) return 'a'
+    // In the strip, the nearer handle wins; the midpoint between them is the boundary.
+    return timeAt(e) < (loopA + loopB) / 2 ? 'a' : 'b'
   }
 
   function move(e: PointerEvent) {
     const t = timeAt(e)
     if (drag === 'seek') onseek(t)
-    else if (drag === 'start' && loop) onloopchange({ start: Math.min(t, loop.end - MIN_LOOP), end: loop.end })
-    else if (drag === 'end' && loop) onloopchange({ start: loop.start, end: Math.max(t, loop.start + MIN_LOOP) })
+    else if (drag === 'a' && loopA !== null) onloopchange?.(loopB === null ? t : Math.min(t, loopB - MIN_LOOP), loopB)
+    else if (drag === 'b' && loopA !== null && loopB !== null) onloopchange?.(loopA, Math.max(t, loopA + MIN_LOOP))
+  }
+
+  function release() {
+    drag = null
+    frozenView = null
   }
 </script>
 
-<div class="wave" bind:clientWidth={width} bind:clientHeight={height}>
+<div class="wave" bind:clientWidth={width} style:height="{height}px">
   <canvas
     bind:this={canvas}
     style:width="{width}px"
     style:height="{height}px"
     onpointerdown={(e) => {
-      drag = grab(e) ?? 'seek'
+      drag = grab(e)
+      if (drag !== 'seek') frozenView = view
       canvas.setPointerCapture(e.pointerId)
       move(e)
     }}
     onpointermove={(e) => drag && move(e)}
-    onpointerup={() => (drag = null)}
-    onpointercancel={() => (drag = null)}
+    onpointerup={release}
+    onpointercancel={release}
   ></canvas>
 </div>
 
 <style>
   .wave {
-    height: 96px;
     touch-action: none;
   }
   canvas {
     display: block;
-    --wave-played: var(--accent);
-    --wave-rest: var(--muted);
   }
 </style>

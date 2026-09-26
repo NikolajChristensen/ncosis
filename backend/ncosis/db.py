@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS songs (
     stems TEXT NOT NULL DEFAULT '[]',
     created_at REAL NOT NULL,
     started_at REAL,
-    finished_at REAL
+    finished_at REAL,
+    notes TEXT                     -- non-fatal problems, e.g. guitar split failed
 );
 """
 
@@ -38,6 +39,9 @@ def init():
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(SCHEMA)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(songs)")}
+        if "notes" not in columns:
+            conn.execute("ALTER TABLE songs ADD COLUMN notes TEXT")
         # A job interrupted by a restart is simply run again.
         conn.execute("UPDATE songs SET status = 'queued', started_at = NULL WHERE status = 'processing'")
 

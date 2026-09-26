@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, separation, worker
+from . import config, db, mvsep, separation, worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -32,6 +32,11 @@ def _song_or_404(song_id: str) -> dict:
     if song is None:
         raise HTTPException(404, "Song not found")
     return song
+
+
+@app.get("/api/config")
+def get_config():
+    return {"guitarSplit": mvsep.enabled()}
 
 
 @app.get("/api/songs")
@@ -78,8 +83,11 @@ def upload_song(file: UploadFile):
 
 @app.post("/api/songs/{song_id}/retry")
 def retry_song(song_id: str):
-    if _song_or_404(song_id)["status"] != "error":
-        raise HTTPException(409, "Only failed songs can be retried")
+    """Re-run whatever a song is missing: a failed separation, or the lead/rhythm guitar split."""
+    song = _song_or_404(song_id)
+    missing_split = mvsep.enabled() and "lead" not in song["stems"]
+    if not (song["status"] == "error" or (song["status"] == "done" and missing_split)):
+        raise HTTPException(409, "Nothing to retry for this song")
     db.update_song(song_id, status="queued", error=None, started_at=None, finished_at=None)
     worker.notify()
     return db.get_song(song_id)

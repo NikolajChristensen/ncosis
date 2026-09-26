@@ -42,8 +42,25 @@ Installing the PWA on Android (and the screen wake lock) needs HTTPS. Put a reve
 with a certificate the phone trusts (DNS challenge for a real domain, or a local CA installed on the phone).
 Plain HTTP over WireGuard still works in the browser for testing.
 
+## Lead/rhythm guitar split (optional)
+
+Demucs only produces one guitar stem. With an [MVSEP](https://mvsep.com) API token, the server also uploads each
+song to MVSEP's "Lead/Rhythm Guitar" model and replaces the guitar stem with separate lead and rhythm stems.
+Songs are sent to MVSEP's servers; everything else stays local.
+
+- Development: put the token in `backend/data/mvsep_token`.
+- LXC: add `NCOSIS_MVSEP_TOKEN=...` to `/etc/ncosis.env` (root-owned, mode 600) and restart the service.
+
+Existing songs get a "Split guitars" button in the library.
+
 ## Configuration
 
 Environment variables (see `backend/ncosis/config.py`):
 `NCOSIS_DATA_DIR`, `NCOSIS_MODEL_DIR`, `NCOSIS_WEB_DIST`, `NCOSIS_MODEL` (default `htdemucs_6s.yaml`),
 `NCOSIS_DEMUCS_SHIFTS` (default `1`; `2` is slightly better and ~2.4x slower), `NCOSIS_STEM_BITRATE` (default `160k`), `NCOSIS_MAX_UPLOAD_MB` (default `200`).
+
+## Ideas for later
+
+- Use MVSEP's own outputs (no guitar, rhythm guitar, lead guitar) instead of Demucs. No local CPU work or
+  PyTorch at all, at the cost of per-instrument control of the backing track (vocals/drums/bass become one
+  stem, unless those are requested from MVSEP as well).

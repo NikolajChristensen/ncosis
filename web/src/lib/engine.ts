@@ -10,13 +10,20 @@ export interface Stem {
   volume: number
   muted: boolean
   solo: boolean
-  // Max absolute amplitude per waveform bin, used to draw the overview.
+  // Max absolute amplitude per 1/PEAK_RATE seconds, used to draw waveforms.
   peaks: Float32Array
 }
 
-export const PEAK_BINS = 1200
+/** Waveform resolution in bins per second; fine enough for the zoomed loop editor. */
+export const PEAK_RATE = 50
 
 export interface Loop {
+  start: number
+  end: number
+}
+
+/** A visible time range of a waveform, in seconds. */
+export interface View {
   start: number
   end: number
 }
@@ -25,11 +32,12 @@ export interface Loop {
 export const MIN_LOOP = 0.2
 
 function computePeaks(buffer: AudioBuffer): Float32Array {
-  const peaks = new Float32Array(PEAK_BINS)
-  const binSize = Math.ceil(buffer.length / PEAK_BINS)
+  const binSize = Math.round(buffer.sampleRate / PEAK_RATE)
+  const bins = Math.ceil(buffer.length / binSize)
+  const peaks = new Float32Array(bins)
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const data = buffer.getChannelData(c)
-    for (let bin = 0; bin < PEAK_BINS; bin++) {
+    for (let bin = 0; bin < bins; bin++) {
       const end = Math.min((bin + 1) * binSize, data.length)
       let max = peaks[bin]
       for (let i = bin * binSize; i < end; i++) {

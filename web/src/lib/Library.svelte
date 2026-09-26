@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { deleteSong, listSongs, retrySong, uploadSong, type Song } from './api'
+  import { deleteSong, getConfig, listSongs, retrySong, uploadSong, type Song } from './api'
 
   let songs = $state<Song[]>([])
   let error = $state('')
   let uploading = $state('')
   let now = $state(Date.now() / 1000)
   let timer = 0
+  let guitarSplit = $state(false)
+  getConfig().then((c) => (guitarSplit = c.guitarSplit), () => {})
 
   async function refresh() {
     try {
@@ -91,7 +93,11 @@
       <span class="status" class:err={song.status === 'error'}>
         {statusText(song)}
         {#if song.status === 'error'}<button class="retry" onclick={() => retry(song)}>Retry</button>{/if}
+        {#if song.status === 'done' && guitarSplit && !song.stems.includes('lead')}
+          <button class="retry" onclick={() => retry(song)}>Split guitars</button>
+        {/if}
       </span>
+      {#if song.notes}<span class="note">{song.notes}</span>{/if}
       <button class="delete" onclick={() => remove(song)} aria-label="Delete {song.title}">✕</button>
     </li>
   {/each}
@@ -133,7 +139,7 @@
   li {
     display: grid;
     grid-template-columns: 1fr auto;
-    grid-template-areas: 'title delete' 'status delete';
+    grid-template-areas: 'title delete' 'status delete' 'note delete';
     align-items: center;
     column-gap: 8px;
     background: var(--surface);
@@ -157,6 +163,11 @@
   }
   .status.err {
     color: var(--danger);
+  }
+  .note {
+    grid-area: note;
+    font-size: 0.8rem;
+    color: var(--warn);
   }
   .retry {
     margin-left: 8px;

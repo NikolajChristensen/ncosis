@@ -9,6 +9,8 @@ Group=ncosis
 WorkingDirectory=/opt/ncosis/backend
 Environment=NCOSIS_DATA_DIR=/var/lib/ncosis
 Environment=NCOSIS_WEB_DIST=/opt/ncosis/web/dist
+# Secrets such as NCOSIS_MVSEP_TOKEN=... (create as root, chmod 600). Optional.
+EnvironmentFile=-/etc/ncosis.env
 ExecStart=/opt/ncosis/backend/.venv/bin/uvicorn ncosis.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 # Separation is CPU-heavy; keep the API responsive.
