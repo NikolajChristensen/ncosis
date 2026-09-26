@@ -1,0 +1,18 @@
+[Unit]
+Description=ncosis stem separation server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ncosis
+Group=ncosis
+WorkingDirectory=/opt/ncosis/backend
+Environment=NCOSIS_DATA_DIR=/var/lib/ncosis
+Environment=NCOSIS_WEB_DIST=/opt/ncosis/web/dist
+ExecStart=/opt/ncosis/backend/.venv/bin/uvicorn ncosis.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+# Separation is CPU-heavy; keep the API responsive.
+Nice=5
+
+[Install]
+WantedBy=multi-user.target
