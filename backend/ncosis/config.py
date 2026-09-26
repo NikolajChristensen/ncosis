@@ -16,6 +16,10 @@ WEB_DIST = Path(os.environ.get("NCOSIS_WEB_DIST", BACKEND_DIR.parent / "web" / "
 # htdemucs_6s: vocals, drums, bass, guitar, piano, other.
 MODEL = os.environ.get("NCOSIS_MODEL", "htdemucs_6s.yaml")
 
+# Demucs passes per song, averaged. audio-separator defaults to 2; 1 is ~2.4x faster
+# with only a marginal quality difference.
+DEMUCS_SHIFTS = int(os.environ.get("NCOSIS_DEMUCS_SHIFTS", "1"))
+
 # Stems are delivered to the phone as Opus to keep downloads small.
 STEM_BITRATE = os.environ.get("NCOSIS_STEM_BITRATE", "160k")
 

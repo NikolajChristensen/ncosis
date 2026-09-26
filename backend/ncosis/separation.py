@@ -50,7 +50,12 @@ def _get_separator():
         work = config.DATA_DIR / "work"
         work.mkdir(parents=True, exist_ok=True)
         config.MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        sep = Separator(output_dir=str(work), model_file_dir=str(config.MODEL_DIR), output_format="WAV")
+        sep = Separator(
+            output_dir=str(work),
+            model_file_dir=str(config.MODEL_DIR),
+            output_format="WAV",
+            demucs_params={"segment_size": "Default", "shifts": config.DEMUCS_SHIFTS, "overlap": 0.25, "segments_enabled": True},
+        )
         sep.load_model(model_filename=config.MODEL)
         _separator = sep
     return _separator

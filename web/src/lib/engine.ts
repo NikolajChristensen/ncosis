@@ -114,11 +114,6 @@ export class StemPlayer {
     }
   }
 
-  isAudible(stem: Stem): boolean {
-    const anySolo = this.stems.some((s) => s.solo)
-    return !stem.muted && (!anySolo || stem.solo)
-  }
-
   async close() {
     this.stopSources()
     await this.ctx.close()

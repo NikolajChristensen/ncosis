@@ -46,4 +46,4 @@ Plain HTTP over WireGuard still works in the browser for testing.
 
 Environment variables (see `backend/ncosis/config.py`):
 `NCOSIS_DATA_DIR`, `NCOSIS_MODEL_DIR`, `NCOSIS_WEB_DIST`, `NCOSIS_MODEL` (default `htdemucs_6s.yaml`),
-`NCOSIS_STEM_BITRATE` (default `160k`), `NCOSIS_MAX_UPLOAD_MB` (default `200`).
+`NCOSIS_DEMUCS_SHIFTS` (default `1`; `2` is slightly better and ~2.4x slower), `NCOSIS_STEM_BITRATE` (default `160k`), `NCOSIS_MAX_UPLOAD_MB` (default `200`).
