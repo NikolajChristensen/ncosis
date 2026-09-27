@@ -9,12 +9,13 @@ Group=ncosis
 WorkingDirectory=/opt/ncosis/backend
 Environment=NCOSIS_DATA_DIR=/var/lib/ncosis
 Environment=NCOSIS_WEB_DIST=/opt/ncosis/web/dist
-# Secrets such as NCOSIS_MVSEP_TOKEN=... (create as root, chmod 600). Optional.
+# Optional overrides, e.g. NCOSIS_MVSEP_TOKEN=... (root-owned, mode 600).
 EnvironmentFile=-/etc/ncosis.env
-ExecStart=/opt/ncosis/backend/.venv/bin/uvicorn ncosis.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/ncosis/backend/.venv/bin/uvicorn ncosis.main:app --host 0.0.0.0 --port 443 \
+    --ssl-keyfile /var/lib/ncosis/tls/server.key --ssl-certfile /var/lib/ncosis/tls/server.crt
+# Allow binding port 443 without running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=on-failure
-# Separation is CPU-heavy; keep the API responsive.
-Nice=5
 
 [Install]
 WantedBy=multi-user.target

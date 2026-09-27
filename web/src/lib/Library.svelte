@@ -1,14 +1,17 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { deleteSong, getConfig, listSongs, retrySong, uploadSong, type Song } from './api'
+  import { deleteSong, getConfig, listSongs, retrySong, uploadSong, type ServerConfig, type Song } from './api'
 
   let songs = $state<Song[]>([])
   let error = $state('')
   let uploading = $state('')
   let now = $state(Date.now() / 1000)
   let timer = 0
-  let guitarSplit = $state(false)
-  getConfig().then((c) => (guitarSplit = c.guitarSplit), () => {})
+  let serverConfig = $state<ServerConfig | null>(null)
+  getConfig().then((c) => (serverConfig = c), () => {})
+
+  // Stems the current server produces; older songs without them can be reprocessed.
+  const CURRENT_STEMS = ['lead', 'rhythm', 'backing']
 
   async function refresh() {
     try {
@@ -58,7 +61,7 @@
         return 'Waiting in queue'
       case 'processing': {
         const secs = Math.round(now - (song.started_at ?? now))
-        return `Separating… ${Math.floor(secs / 60)}m ${secs % 60}s`
+        return `${song.notes ?? 'Uploading to MVSEP'}… ${Math.floor(secs / 60)}m ${secs % 60}s`
       }
       case 'error':
         return `Failed: ${song.error}`
@@ -82,6 +85,10 @@
   <p class="hint">No songs yet. Add an mp3, flac or wav file. Separation takes a few minutes per song.</p>
 {/if}
 
+{#if serverConfig && !serverConfig.mvsepConfigured}
+  <p class="error">The server has no MVSEP API token, so new songs can't be separated.</p>
+{/if}
+
 <ul>
   {#each songs as song (song.id)}
     <li>
@@ -93,17 +100,24 @@
       <span class="status" class:err={song.status === 'error'}>
         {statusText(song)}
         {#if song.status === 'error'}<button class="retry" onclick={() => retry(song)}>Retry</button>{/if}
-        {#if song.status === 'done' && guitarSplit && !song.stems.includes('lead')}
-          <button class="retry" onclick={() => retry(song)}>Split guitars</button>
+        {#if song.status === 'done' && !CURRENT_STEMS.every((s) => song.stems.includes(s))}
+          <button class="retry" onclick={() => retry(song)}>Reprocess</button>
         {/if}
       </span>
-      {#if song.notes}<span class="note">{song.notes}</span>{/if}
       <button class="delete" onclick={() => remove(song)} aria-label="Delete {song.title}">✕</button>
     </li>
   {/each}
 </ul>
 
+{#if serverConfig}<footer>ncosis {serverConfig.version}</footer>{/if}
+
 <style>
+  footer {
+    margin-top: 32px;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--muted-text);
+  }
   header {
     display: flex;
     align-items: center;
@@ -139,7 +153,7 @@
   li {
     display: grid;
     grid-template-columns: 1fr auto;
-    grid-template-areas: 'title delete' 'status delete' 'note delete';
+    grid-template-areas: 'title delete' 'status delete';
     align-items: center;
     column-gap: 8px;
     background: var(--surface);
@@ -163,11 +177,6 @@
   }
   .status.err {
     color: var(--danger);
-  }
-  .note {
-    grid-area: note;
-    font-size: 0.8rem;
-    color: var(--warn);
   }
   .retry {
     margin-left: 8px;

@@ -6,7 +6,7 @@
 
   let { id }: { id: string } = $props()
 
-  const STEM_ORDER = ['vocals', 'lead', 'rhythm', 'guitar', 'bass', 'drums', 'piano', 'other']
+  const STEM_ORDER = ['lead', 'rhythm', 'backing', 'vocals', 'guitar', 'bass', 'drums', 'piano', 'other']
   const STEM_LABELS: Record<string, string> = { lead: 'Lead gtr', rhythm: 'Rhythm gtr' }
 
   let song = $state<Song | null>(null)

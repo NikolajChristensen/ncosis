@@ -1,24 +1,17 @@
 """Settings, read from environment variables so the systemd unit can override them."""
 
 import os
+import subprocess
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 DATA_DIR = Path(os.environ.get("NCOSIS_DATA_DIR", BACKEND_DIR / "data"))
 SONGS_DIR = DATA_DIR / "songs"
-MODEL_DIR = Path(os.environ.get("NCOSIS_MODEL_DIR", DATA_DIR / "models"))
 DB_PATH = DATA_DIR / "ncosis.db"
 
 # Built PWA (web/dist). Served by the backend so production is a single service.
 WEB_DIST = Path(os.environ.get("NCOSIS_WEB_DIST", BACKEND_DIR.parent / "web" / "dist"))
-
-# htdemucs_6s: vocals, drums, bass, guitar, piano, other.
-MODEL = os.environ.get("NCOSIS_MODEL", "htdemucs_6s.yaml")
-
-# Demucs passes per song, averaged. audio-separator defaults to 2; 1 is ~2.4x faster
-# with only a marginal quality difference.
-DEMUCS_SHIFTS = int(os.environ.get("NCOSIS_DEMUCS_SHIFTS", "1"))
 
 # Stems are delivered to the phone as Opus to keep downloads small.
 STEM_BITRATE = os.environ.get("NCOSIS_STEM_BITRATE", "160k")
@@ -38,8 +31,20 @@ def _secret(env: str, filename: str) -> str | None:
     return path.read_text().strip() or None if path.is_file() else None
 
 
-
 def mvsep_token() -> str | None:
-    """MVSEP (mvsep.com) API token for lead/rhythm guitar splitting. Optional; read on each
-    use so adding the token file takes effect without a restart."""
+    """MVSEP (mvsep.com) API token. Read on each use so adding it takes effect without a restart."""
     return _secret("NCOSIS_MVSEP_TOKEN", "mvsep_token")
+
+
+def version() -> str:
+    """Deployed version: the VERSION file written on deploy, or the git commit in development."""
+    path = BACKEND_DIR.parent / "VERSION"
+    if path.is_file():
+        return path.read_text().strip()
+    try:
+        return subprocess.run(
+            ["git", "-C", str(BACKEND_DIR), "describe", "--always", "--dirty"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "dev"

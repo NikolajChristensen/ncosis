@@ -4,10 +4,6 @@ version = "0.1.0"
 description = "Stem separation backend for playing along to songs"
 requires-python = ">=3.11"
 dependencies = [
-    # Install CPU-only torch first from https://download.pytorch.org/whl/cpu (see deploy/install.sh)
-    "audio-separator[cpu]>=0.47",
-    # audio-separator imports audioread but does not declare it
-    "audioread>=3.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",

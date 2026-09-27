@@ -5,3 +5,4 @@ backend/.venv/
 backend/data/
 __pycache__/
 *.egg-info/
+VERSION

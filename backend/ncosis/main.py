@@ -15,7 +15,7 @@ from starlette.background import BackgroundTask
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, mvsep, separation, worker
+from . import audio, config, db, mvsep, worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -40,7 +40,7 @@ def _song_or_404(song_id: str) -> dict:
 
 @app.get("/api/config")
 def get_config():
-    return {"guitarSplit": mvsep.enabled()}
+    return {"version": config.version(), "mvsepConfigured": config.mvsep_token() is not None}
 
 
 @app.get("/api/songs")
@@ -69,7 +69,7 @@ def upload_song(file: UploadFile):
                     raise HTTPException(413, f"File is larger than {config.MAX_UPLOAD_BYTES // 2**20} MB")
                 out.write(chunk)
         try:
-            info = separation.probe(song_dir / filename)
+            info = audio.probe(song_dir / filename)
         except (subprocess.CalledProcessError, KeyError, ValueError):
             raise HTTPException(400, "Not a readable audio file")
     except BaseException:
@@ -87,11 +87,10 @@ def upload_song(file: UploadFile):
 
 @app.post("/api/songs/{song_id}/retry")
 def retry_song(song_id: str):
-    """Re-run whatever a song is missing: a failed separation, or the lead/rhythm guitar split."""
+    """Separate a song again: after a failure, or to get the current set of stems."""
     song = _song_or_404(song_id)
-    missing_split = mvsep.enabled() and "lead" not in song["stems"]
-    if not (song["status"] == "error" or (song["status"] == "done" and missing_split)):
-        raise HTTPException(409, "Nothing to retry for this song")
+    if song["status"] not in ("error", "done"):
+        raise HTTPException(409, "Song is already being processed")
     db.update_song(song_id, status="queued", error=None, started_at=None, finished_at=None)
     worker.notify()
     return db.get_song(song_id)
@@ -117,7 +116,7 @@ def get_stem(song_id: str, stem: str):
     )
 
 
-STEM_TITLES = {"lead": "Lead guitar", "rhythm": "Rhythm guitar"}
+STEM_TITLES = {"lead": "Lead guitar", "rhythm": "Rhythm guitar", "backing": "Backing (no guitar)"}
 
 
 @app.get("/api/songs/{song_id}/stems.zip")
@@ -134,7 +133,7 @@ def download_stems(song_id: str):
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as z:
             for stem in song["stems"]:
                 flac = work / f"{stem}.flac"
-                separation.to_flac(config.SONGS_DIR / song_id / "stems" / f"{stem}.opus", flac)
+                audio.to_flac(config.SONGS_DIR / song_id / "stems" / f"{stem}.opus", flac)
                 z.write(flac, f"{name} - {STEM_TITLES.get(stem, stem.capitalize())}.flac")
                 flac.unlink()
     except BaseException:

@@ -15,7 +15,8 @@ export interface Song {
 }
 
 export interface ServerConfig {
-  guitarSplit: boolean
+  version: string
+  mvsepConfigured: boolean
 }
 
 async function check(res: Response): Promise<Response> {
