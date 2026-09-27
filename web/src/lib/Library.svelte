@@ -37,6 +37,7 @@
 
   const AUDIO_EXT = /\.(mp3|flac|wav|m4a|aac|ogg|opus|aiff?)$/i
   let dragging = $state(false)
+  let notice = $state('')
 
   // Songs can also be dragged in from a file manager, which avoids the file dialog.
   function drop(e: DragEvent) {
@@ -44,7 +45,8 @@
     dragging = false
     const files = [...(e.dataTransfer?.files ?? [])]
     const audio = files.filter((f) => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name))
-    if (audio.length < files.length) error = `Skipped ${files.length - audio.length} file(s) that aren't audio`
+    const skipped = files.length - audio.length
+    notice = skipped ? `Skipped ${skipped} file${skipped > 1 ? 's' : ''} that ${skipped > 1 ? "aren't" : "isn't"} audio.` : ''
     if (audio.length) upload(audio)
   }
 
@@ -112,6 +114,7 @@
 </header>
 
 {#if error}<p class="error">{error}</p>{/if}
+{#if notice}<p class="hint">{notice}</p>{/if}
 
 {#if songs.length === 0 && !error}
   <p class="hint">
