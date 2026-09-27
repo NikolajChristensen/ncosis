@@ -38,6 +38,8 @@
   const MIN_SPEED = 50
   const MAX_SPEED = 125
   let speed = $state(100)
+  // The last speed other than 100%, so the middle button can toggle back to it.
+  let practiceSpeed = $state<number | null>(null)
   const speedKey = $derived(`ncosis:speed:${id}`)
 
   const player = new StemPlayer()
@@ -64,6 +66,7 @@
       try {
         semitones = Number(localStorage.getItem(pitchKey)) || 0
         speed = Number(localStorage.getItem(speedKey)) || 100
+        practiceSpeed = Number(localStorage.getItem(`${speedKey}:practice`)) || null
       } catch {}
       ready = true
     } catch (e) {
@@ -142,11 +145,23 @@
     )
     try {
       localStorage.setItem(speedKey, String(speed))
+      localStorage.setItem(`${speedKey}:practice`, String(practiceSpeed ?? ''))
     } catch {}
   })
 
   function changeSpeed(delta: number) {
     speed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, speed + delta))
+    if (speed !== 100) practiceSpeed = speed
+  }
+
+  /** Toggle between 100% and the last practice speed. */
+  function toggleSpeed() {
+    if (speed !== 100) {
+      practiceSpeed = speed
+      speed = 100
+    } else if (practiceSpeed !== null) {
+      speed = practiceSpeed
+    }
   }
 
   function transpose(delta: number) {
@@ -311,8 +326,14 @@
     <div class="pitch">
       <span class="label">Speed</span>
       <button onclick={() => changeSpeed(-5)} disabled={speed <= MIN_SPEED} aria-label="Slower">−</button>
-      <button class="value" class:on={speed !== 100} onclick={() => (speed = 100)} title="Tap to reset">
+      <button
+        class="value"
+        class:on={speed !== 100}
+        onclick={toggleSpeed}
+        title={speed !== 100 ? 'Tap for 100%' : practiceSpeed ? `Tap for ${practiceSpeed}%` : ''}
+      >
         {speed}%
+        {#if speed === 100 && practiceSpeed}<span class="alt">↺ {practiceSpeed}%</span>{/if}
       </button>
       <button onclick={() => changeSpeed(5)} disabled={speed >= MAX_SPEED} aria-label="Faster">+</button>
     </div>
@@ -472,6 +493,12 @@
     min-width: 72px;
     font-size: 0.95rem;
     font-variant-numeric: tabular-nums;
+  }
+  .pitch .value .alt {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--muted-text);
+    line-height: 1;
   }
   .pitch .value.on {
     border-color: var(--accent);
