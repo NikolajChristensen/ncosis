@@ -19,6 +19,15 @@ export interface ServerConfig {
   mvsepConfigured: boolean
 }
 
+/** fetch, with a readable error when the server can't be reached at all. */
+async function request(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch {
+    throw new Error(`Can't reach the ncosis server at ${location.host}. Is it running, and is this the right address?`)
+  }
+}
+
 async function check(res: Response): Promise<Response> {
   if (!res.ok) {
     let detail = res.statusText
@@ -31,29 +40,29 @@ async function check(res: Response): Promise<Response> {
 }
 
 export async function getConfig(): Promise<ServerConfig> {
-  return (await check(await fetch('/api/config'))).json()
+  return (await check(await request('/api/config'))).json()
 }
 
 export async function listSongs(): Promise<Song[]> {
-  return (await check(await fetch('/api/songs'))).json()
+  return (await check(await request('/api/songs'))).json()
 }
 
 export async function getSong(id: string): Promise<Song> {
-  return (await check(await fetch(`/api/songs/${id}`))).json()
+  return (await check(await request(`/api/songs/${id}`))).json()
 }
 
 export async function uploadSong(file: File): Promise<Song> {
   const body = new FormData()
   body.append('file', file)
-  return (await check(await fetch('/api/songs', { method: 'POST', body }))).json()
+  return (await check(await request('/api/songs', { method: 'POST', body }))).json()
 }
 
 export async function retrySong(id: string): Promise<Song> {
-  return (await check(await fetch(`/api/songs/${id}/retry`, { method: 'POST' }))).json()
+  return (await check(await request(`/api/songs/${id}/retry`, { method: 'POST' }))).json()
 }
 
 export async function deleteSong(id: string): Promise<void> {
-  await check(await fetch(`/api/songs/${id}`, { method: 'DELETE' }))
+  await check(await request(`/api/songs/${id}`, { method: 'DELETE' }))
 }
 
 export function stemUrl(id: string, stem: string): string {
