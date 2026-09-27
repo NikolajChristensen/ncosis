@@ -3,7 +3,8 @@
   import { deleteSong, getConfig, listSongs, retrySong, uploadSong, type ServerConfig, type Song } from './api'
 
   let songs = $state<Song[]>([])
-  let error = $state('')
+  let error = $state('') // from an action like uploading; stays until the next action
+  let loadError = $state('') // from refreshing the list; clears once the server answers again
   let uploading = $state('')
   let now = $state(Date.now() / 1000)
   let timer = 0
@@ -16,9 +17,9 @@
   async function refresh() {
     try {
       songs = await listSongs()
-      error = ''
+      loadError = ''
     } catch (e) {
-      error = (e as Error).message
+      loadError = (e as Error).message
     }
     now = Date.now() / 1000
     // Poll while the server is still working on something.
@@ -44,6 +45,13 @@
     e.preventDefault()
     dragging = false
     const files = [...(e.dataTransfer?.files ?? [])]
+    if (!files.length) {
+      // Some file managers hand over only links to files the browser can't open.
+      const types = [...(e.dataTransfer?.types ?? [])].join(', ') || 'nothing'
+      const uris = e.dataTransfer?.getData('text/uri-list').split('\n').filter(Boolean).slice(0, 3).join(' ') ?? ''
+      error = `The browser received no files from this drop (got: ${types}${uris ? `; ${uris}` : ''}).`
+      return
+    }
     const audio = files.filter((f) => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name))
     const skipped = files.length - audio.length
     notice = skipped ? `Skipped ${skipped} file${skipped > 1 ? 's' : ''} that ${skipped > 1 ? "aren't" : "isn't"} audio.` : ''
@@ -51,6 +59,7 @@
   }
 
   async function upload(files: File[]) {
+    error = ''
     for (const file of files) {
       uploading = file.name
       try {
@@ -114,9 +123,10 @@
 </header>
 
 {#if error}<p class="error">{error}</p>{/if}
+{#if loadError}<p class="error">{loadError}</p>{/if}
 {#if notice}<p class="hint">{notice}</p>{/if}
 
-{#if songs.length === 0 && !error}
+{#if songs.length === 0 && !loadError}
   <p class="hint">
     No songs yet. Add an mp3, flac or wav file, or drag songs onto this page. Separation takes a few minutes per song.
   </p>
