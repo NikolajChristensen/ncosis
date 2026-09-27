@@ -40,7 +40,13 @@ def _process(song: dict):
     try:
         work.mkdir(parents=True, exist_ok=True)
         stems_dir.mkdir(exist_ok=True)
-        job = mvsep.submit(config.SONGS_DIR / song_id / song["filename"])
+        # After a restart, pick up the job already running at MVSEP instead of sending the song again.
+        job = song["mvsep_job"]
+        if job:
+            log.info("Resuming MVSEP job %s", job)
+        else:
+            job = mvsep.submit(config.SONGS_DIR / song_id / song["filename"])
+            db.update_song(song_id, mvsep_job=job)
         results = mvsep.fetch(job, work, on_wait=lambda msg: db.update_song(song_id, notes=msg))
         for stem, path in results.items():
             audio.to_opus(path, stems_dir / f"{stem}.opus")
@@ -48,10 +54,12 @@ def _process(song: dict):
         for old in stems_dir.glob("*.opus"):
             if old.stem not in results:
                 old.unlink()
-        db.update_song(song_id, status="done", stems=sorted(results), notes=None, finished_at=time.time())
+        db.update_song(song_id, status="done", stems=sorted(results), notes=None, mvsep_job=None, finished_at=time.time())
         log.info("Finished %s in %.0fs", song_id, time.time() - db.get_song(song_id)["started_at"])
     except Exception as e:
         log.exception("Separation failed for %s", song_id)
-        db.update_song(song_id, status="error", error=str(e) or type(e).__name__, notes=None, finished_at=time.time())
+        db.update_song(
+            song_id, status="error", error=str(e) or type(e).__name__, notes=None, mvsep_job=None, finished_at=time.time()
+        )
     finally:
         shutil.rmtree(work, ignore_errors=True)

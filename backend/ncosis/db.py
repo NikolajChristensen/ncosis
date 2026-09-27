@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS songs (
     created_at REAL NOT NULL,
     started_at REAL,
     finished_at REAL,
-    notes TEXT                     -- non-fatal problems, e.g. guitar split failed
+    notes TEXT,                    -- progress message while processing
+    mvsep_job TEXT                 -- running MVSEP job, so a restart resumes instead of resubmitting
 );
 """
 
@@ -40,8 +41,9 @@ def init():
     with connect() as conn:
         conn.executescript(SCHEMA)
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(songs)")}
-        if "notes" not in columns:
-            conn.execute("ALTER TABLE songs ADD COLUMN notes TEXT")
+        for column in ("notes", "mvsep_job"):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE songs ADD COLUMN {column} TEXT")
         # A job interrupted by a restart is simply run again.
         conn.execute("UPDATE songs SET status = 'queued', started_at = NULL WHERE status = 'processing'")
 
