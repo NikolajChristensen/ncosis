@@ -41,6 +41,17 @@
   // The last speed other than 100%, so the middle button can toggle back to it.
   let practiceSpeed = $state<number | null>(null)
 
+  // Tempo: detected on the server, or tapped in by the user (saved with the settings).
+  let bpmOverride = $state<number | null>(null)
+  const baseBpm = $derived(bpmOverride ?? (song?.bpm || null))
+  const effectiveBpm = $derived(baseBpm ? Math.round((baseBpm * speed) / 100) : null)
+  const TAP_TIMEOUT_MS = 2000
+  const MIN_TAPS = 4
+  let taps: number[] = []
+  let tapCount = $state(0)
+  let tapBpm = $state<number | null>(null)
+  let tapTimer: ReturnType<typeof setTimeout> | undefined
+
   const player = new StemPlayer()
   // Handy for poking at playback from the devtools console.
   if (import.meta.env.DEV) Object.assign(window, { player })
@@ -167,6 +178,28 @@
     }
   }
 
+  /** Tap along to the beat (at the current speed); after a pause the tempo is taken over. */
+  function tap() {
+    const now = performance.now()
+    if (taps.length && now - taps[taps.length - 1] > TAP_TIMEOUT_MS) taps = []
+    taps.push(now)
+    tapCount = taps.length
+    if (taps.length >= 2) {
+      const gaps = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b)
+      tapBpm = 60000 / gaps[Math.floor(gaps.length / 2)] // median resists a sloppy tap
+    }
+    clearTimeout(tapTimer)
+    tapTimer = setTimeout(finishTapping, TAP_TIMEOUT_MS)
+  }
+
+  function finishTapping() {
+    // Taps happen at the current speed; store the song's own tempo.
+    if (taps.length >= MIN_TAPS && tapBpm) bpmOverride = Math.round((tapBpm / (speed / 100)) * 10) / 10
+    taps = []
+    tapCount = 0
+    tapBpm = null
+  }
+
   const fmtSemitones = (st: number) => `${st > 0 ? '+' : ''}${st} st`
 
   // Settings are saved to the server (shared by all devices) shortly after the last change.
@@ -183,6 +216,7 @@
       practiceSemitones,
       speed,
       practiceSpeed,
+      bpm: bpmOverride,
     }
   }
 
@@ -229,6 +263,7 @@
     practiceSemitones = s.practiceSemitones ?? null
     speed = s.speed ?? 100
     practiceSpeed = s.practiceSpeed ?? null
+    bpmOverride = s.bpm ?? null
   }
 
   // Before settings moved to the server, each device kept its own in localStorage.
@@ -427,6 +462,24 @@
       </button>
       <button onclick={() => changeSpeed(5)} disabled={speed >= MAX_SPEED} aria-label="Faster">+</button>
     </div>
+    <div class="pitch tempo">
+      <span class="label">Tempo</span>
+      <span class="bpm" class:tapping={tapBpm !== null}>
+        {#if tapBpm !== null}
+          {Math.round(tapBpm)} BPM
+          <small>{tapCount < MIN_TAPS ? `keep tapping… ${tapCount}/${MIN_TAPS}` : 'pause to save'}</small>
+        {:else if effectiveBpm}
+          {effectiveBpm} BPM
+          {#if speed !== 100}<small>of {Math.round(baseBpm ?? 0)}</small>{/if}
+        {:else}
+          <small>unknown</small>
+        {/if}
+      </span>
+      <button class="tap" onclick={tap} aria-label="Tap tempo">Tap</button>
+      {#if bpmOverride !== null && tapBpm === null && song?.bpm}
+        <button class="auto" onclick={() => (bpmOverride = null)} title="Use the detected tempo">auto</button>
+      {/if}
+    </div>
     {#if pitchError}<p class="error pitch-error">{pitchError}</p>{/if}
   </section>
 
@@ -594,6 +647,31 @@
     border-color: var(--accent);
     color: var(--accent);
     font-weight: 700;
+  }
+  .tempo .bpm {
+    min-width: 72px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    line-height: 1.1;
+  }
+  .tempo .bpm small {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--muted-text);
+  }
+  .tempo .bpm.tapping {
+    color: var(--accent);
+  }
+  .pitch .tap {
+    min-width: 64px;
+    font-size: 0.95rem;
+  }
+  .pitch .auto {
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 0.8rem;
   }
   .pitch-error {
     text-align: center;

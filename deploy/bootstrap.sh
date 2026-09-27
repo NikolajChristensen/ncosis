@@ -5,7 +5,7 @@
 set -euo pipefail
 
 apt-get update
-apt-get install -y --no-install-recommends python3 python3-venv ffmpeg git nodejs npm curl ca-certificates
+apt-get install -y --no-install-recommends python3 python3-venv ffmpeg aubio-tools git nodejs npm curl ca-certificates
 
 id ncosis >/dev/null 2>&1 || useradd --system --home /var/lib/ncosis --shell /usr/sbin/nologin ncosis
 install -d -o ncosis -g ncosis -m 750 /var/lib/ncosis

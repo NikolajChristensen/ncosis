@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS songs (
     notes TEXT,                    -- progress message while processing
     mvsep_job TEXT,                -- running MVSEP job, so a restart resumes instead of resubmitting
     origin TEXT,                   -- path in the music library, for songs added from there
-    settings TEXT                  -- player settings (mixer, loop, transpose, speed) as JSON
+    settings TEXT,                 -- player settings (mixer, loop, transpose, speed) as JSON
+    bpm REAL                       -- detected tempo; 0 if detection failed, NULL if not tried yet
 );
 """
 
@@ -43,9 +44,9 @@ def init():
     with connect() as conn:
         conn.executescript(SCHEMA)
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(songs)")}
-        for column in ("notes", "mvsep_job", "origin", "settings"):
+        for column, kind in (("notes", "TEXT"), ("mvsep_job", "TEXT"), ("origin", "TEXT"), ("settings", "TEXT"), ("bpm", "REAL")):
             if column not in columns:
-                conn.execute(f"ALTER TABLE songs ADD COLUMN {column} TEXT")
+                conn.execute(f"ALTER TABLE songs ADD COLUMN {column} {kind}")
         # A job interrupted by a restart is simply run again.
         conn.execute("UPDATE songs SET status = 'queued', started_at = NULL WHERE status = 'processing'")
 
@@ -98,3 +99,8 @@ def update_song(song_id: str, **fields):
 def delete_song(song_id: str):
     with connect() as conn:
         conn.execute("DELETE FROM songs WHERE id = ?", (song_id,))
+
+
+def next_without_bpm() -> dict | None:
+    with connect() as conn:
+        return _row(conn.execute("SELECT * FROM songs WHERE status = 'done' AND bpm IS NULL LIMIT 1").fetchone())

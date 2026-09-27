@@ -24,11 +24,14 @@ def start():
 def _run():
     while True:
         song = db.next_queued()
-        if song is None:
+        if song is not None:
+            _process(song)
+        elif (song := db.next_without_bpm()) is not None:
+            # Songs from before tempo detection existed get it while nothing else is queued.
+            _detect_bpm(song)
+        else:
             _wake.wait(timeout=60)
             _wake.clear()
-            continue
-        _process(song)
 
 
 def _process(song: dict):
@@ -55,6 +58,7 @@ def _process(song: dict):
             if old.stem not in results:
                 old.unlink()
         db.update_song(song_id, status="done", stems=sorted(results), notes=None, mvsep_job=None, finished_at=time.time())
+        _detect_bpm(db.get_song(song_id))
         log.info("Finished %s in %.0fs", song_id, time.time() - db.get_song(song_id)["started_at"])
     except Exception as e:
         log.exception("Separation failed for %s", song_id)
@@ -63,3 +67,13 @@ def _process(song: dict):
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _detect_bpm(song: dict):
+    try:
+        bpm = audio.detect_bpm(config.SONGS_DIR / song["id"] / song["filename"])
+    except Exception:
+        log.exception("Tempo detection failed for %s", song["id"])
+        bpm = None
+    db.update_song(song["id"], bpm=bpm or 0)
+    log.info("Tempo of %s: %s bpm", song["title"], bpm)

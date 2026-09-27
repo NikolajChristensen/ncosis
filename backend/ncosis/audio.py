@@ -1,6 +1,7 @@
 """Audio probing and conversion with ffmpeg."""
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -30,3 +31,12 @@ def to_flac(src: Path, dst: Path):
         ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-c:a", "flac", "-sample_fmt", "s16", "-ar", "44100", str(dst)],
         check=True, capture_output=True,
     )
+
+
+def detect_bpm(path: Path) -> float | None:
+    """Estimate the tempo with aubio. Can be off by a factor of two, which the app lets
+    the user correct with tap tempo."""
+    out = subprocess.run(["aubio", "tempo", "-i", str(path)], capture_output=True, text=True, timeout=120)
+    found = re.findall(r"([\d.]+)\s*bpm", out.stdout)
+    bpm = float(found[-1]) if found else 0
+    return round(bpm, 1) if 30 <= bpm <= 300 else None

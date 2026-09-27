@@ -8,6 +8,13 @@ DATA=/var/lib/ncosis
 cd "$APP"
 echo "==> Deploying $(cat VERSION 2>/dev/null || echo unknown version)"
 
+# System packages added after bootstrap (installing takes a moment only the first time).
+missing=$(for pkg in aubio-tools; do dpkg -s "$pkg" >/dev/null 2>&1 || echo "$pkg"; done)
+if [ -n "$missing" ]; then
+  echo "==> Installing $missing"
+  apt-get update -qq && apt-get install -y -qq --no-install-recommends $missing
+fi
+
 echo "==> Backend"
 [ -d backend/.venv ] || python3 -m venv backend/.venv
 backend/.venv/bin/pip install -q --disable-pip-version-check -e backend

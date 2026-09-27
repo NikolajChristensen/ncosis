@@ -13,6 +13,7 @@ export interface Song {
   finished_at: number | null
   notes: string | null
   settings: SongSettings | null
+  bpm: number | null // detected tempo; 0 if detection failed
 }
 
 /** Player settings for a song, stored on the server so every device shares them. */
@@ -23,6 +24,7 @@ export interface SongSettings {
   practiceSemitones?: number | null
   speed?: number
   practiceSpeed?: number | null
+  bpm?: number | null // tempo tapped in by the user, overriding the detected one
 }
 
 export interface ServerConfig {
