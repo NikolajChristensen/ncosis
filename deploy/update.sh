@@ -21,9 +21,11 @@ if [ ! -d web/node_modules ] || [ "$lock" != "$(cat web/node_modules/.lock-sha 2
 fi
 (cd web && npm run build --silent >/dev/null)
 
-if [ ! -f "$DATA/tls/server.crt" ]; then
-  echo "==> Creating TLS certificate"
-  deploy/make-certs.sh "$DATA/tls" "$(hostname -I | awk '{print $1}')"
+# (Re)issue the server certificate if there is none or the container's IP changed.
+ip=$(hostname -I | awk '{print $1}')
+if ! openssl x509 -in "$DATA/tls/server.crt" -noout -checkip "$ip" 2>/dev/null | grep -q "does match"; then
+  echo "==> Issuing TLS certificate for $ip"
+  deploy/make-certs.sh "$DATA/tls" "$ip"
 fi
 chown -R ncosis:ncosis "$DATA"
 
