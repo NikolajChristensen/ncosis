@@ -29,9 +29,26 @@
   refresh()
   onDestroy(() => clearTimeout(timer))
 
-  async function upload(e: Event & { currentTarget: HTMLInputElement }) {
+  function pick(e: Event & { currentTarget: HTMLInputElement }) {
     const files = [...(e.currentTarget.files ?? [])]
     e.currentTarget.value = ''
+    upload(files)
+  }
+
+  const AUDIO_EXT = /\.(mp3|flac|wav|m4a|aac|ogg|opus|aiff?)$/i
+  let dragging = $state(false)
+
+  // Songs can also be dragged in from a file manager, which avoids the file dialog.
+  function drop(e: DragEvent) {
+    e.preventDefault()
+    dragging = false
+    const files = [...(e.dataTransfer?.files ?? [])]
+    const audio = files.filter((f) => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name))
+    if (audio.length < files.length) error = `Skipped ${files.length - audio.length} file(s) that aren't audio`
+    if (audio.length) upload(audio)
+  }
+
+  async function upload(files: File[]) {
     for (const file of files) {
       uploading = file.name
       try {
@@ -71,18 +88,35 @@
   }
 </script>
 
+<svelte:window
+  ondragover={(e) => {
+    if (!e.dataTransfer?.types.includes('Files')) return
+    e.preventDefault()
+    dragging = true
+  }}
+  ondragleave={(e) => {
+    // Only when the pointer leaves the window, not when it moves between elements.
+    if (!e.relatedTarget) dragging = false
+  }}
+  ondrop={drop}
+/>
+
+{#if dragging}<div class="dropzone">Drop songs to add them</div>{/if}
+
 <header>
   <h1>ncosis</h1>
   <label class="upload" class:busy={uploading}>
     {uploading ? 'Uploading…' : '+ Add song'}
-    <input type="file" accept="audio/*,.flac,.mp3,.wav,.m4a,.ogg,.opus" multiple onchange={upload} disabled={!!uploading} />
+    <input type="file" accept="audio/*,.flac,.mp3,.wav,.m4a,.ogg,.opus" multiple onchange={pick} disabled={!!uploading} />
   </label>
 </header>
 
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if songs.length === 0 && !error}
-  <p class="hint">No songs yet. Add an mp3, flac or wav file. Separation takes a few minutes per song.</p>
+  <p class="hint">
+    No songs yet. Add an mp3, flac or wav file, or drag songs onto this page. Separation takes a few minutes per song.
+  </p>
 {/if}
 
 {#if serverConfig && !serverConfig.mvsepConfigured}
@@ -112,6 +146,20 @@
 {#if serverConfig}<footer>ncosis {serverConfig.version}</footer>{/if}
 
 <style>
+  .dropzone {
+    position: fixed;
+    inset: 12px;
+    z-index: 10;
+    display: grid;
+    place-items: center;
+    border: 3px dashed var(--accent);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    color: var(--accent);
+    font-size: 1.3rem;
+    font-weight: 700;
+    pointer-events: none;
+  }
   footer {
     margin-top: 32px;
     text-align: center;
