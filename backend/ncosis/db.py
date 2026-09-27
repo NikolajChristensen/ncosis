@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS songs (
     finished_at REAL,
     notes TEXT,                    -- progress message while processing
     mvsep_job TEXT,                -- running MVSEP job, so a restart resumes instead of resubmitting
-    origin TEXT                    -- path in the music library, for songs added from there
+    origin TEXT,                   -- path in the music library, for songs added from there
+    settings TEXT                  -- player settings (mixer, loop, transpose, speed) as JSON
 );
 """
 
@@ -42,7 +43,7 @@ def init():
     with connect() as conn:
         conn.executescript(SCHEMA)
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(songs)")}
-        for column in ("notes", "mvsep_job", "origin"):
+        for column in ("notes", "mvsep_job", "origin", "settings"):
             if column not in columns:
                 conn.execute(f"ALTER TABLE songs ADD COLUMN {column} TEXT")
         # A job interrupted by a restart is simply run again.
@@ -54,6 +55,7 @@ def _row(row: sqlite3.Row | None) -> dict | None:
         return None
     song = dict(row)
     song["stems"] = json.loads(song["stems"])
+    song["settings"] = json.loads(song["settings"]) if song["settings"] else None
     return song
 
 
@@ -85,8 +87,9 @@ def next_queued() -> dict | None:
 
 
 def update_song(song_id: str, **fields):
-    if "stems" in fields:
-        fields["stems"] = json.dumps(fields["stems"])
+    for key in ("stems", "settings"):
+        if key in fields:
+            fields[key] = json.dumps(fields[key])
     assignments = ", ".join(f"{key} = ?" for key in fields)
     with connect() as conn:
         conn.execute(f"UPDATE songs SET {assignments} WHERE id = ?", (*fields.values(), song_id))

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { getSong, stemsZipUrl, stemUrl, type Song } from './api'
+  import { getSong, saveSettings, stemsZipUrl, stemUrl, type Song, type SongSettings } from './api'
   import { MIN_LOOP, StemPlayer, type Loop, type Stem } from './engine'
   import Waveform from './Waveform.svelte'
 
@@ -26,8 +26,6 @@
   let loopB = $state<number | null>(null)
   let loopEnabled = $state(false)
   const loop = $derived<Loop | null>(loopA !== null && loopB !== null ? { start: loopA, end: loopB } : null)
-  const loopKey = $derived(`ncosis:loop:${id}`)
-  const mixKey = $derived(`ncosis:mix:${id}`)
 
   // Transpose in semitones, remembered per song (e.g. -1 for songs in Eb tuning).
   const MAX_SEMITONES = 12
@@ -35,7 +33,6 @@
   // The last transpose other than 0, so the middle button can toggle back to it.
   let practiceSemitones = $state<number | null>(null)
   let pitchError = $state('')
-  const pitchKey = $derived(`ncosis:pitch:${id}`)
 
   // Playback speed in percent, remembered per song. Pitch stays the same.
   const MIN_SPEED = 50
@@ -43,7 +40,6 @@
   let speed = $state(100)
   // The last speed other than 100%, so the middle button can toggle back to it.
   let practiceSpeed = $state<number | null>(null)
-  const speedKey = $derived(`ncosis:speed:${id}`)
 
   const player = new StemPlayer()
   // Handy for poking at playback from the devtools console.
@@ -65,14 +61,11 @@
         (n) => (loaded = n),
       )
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
-      restoreMix()
-      restoreLoop()
-      try {
-        semitones = Number(localStorage.getItem(pitchKey)) || 0
-        practiceSemitones = Number(localStorage.getItem(`${pitchKey}:practice`)) || null
-        speed = Number(localStorage.getItem(speedKey)) || 100
-        practiceSpeed = Number(localStorage.getItem(`${speedKey}:practice`)) || null
-      } catch {}
+      const legacy = song.settings ? null : legacySettings()
+      applySettings(song.settings ?? legacy ?? {})
+      // Settings from the server are already saved; ones carried over from this device are not.
+      savedJson = legacy ? '' : JSON.stringify(currentSettings())
+      migratingLegacy = !!legacy
       ready = true
     } catch (e) {
       error = (e as Error).message
@@ -119,9 +112,6 @@
     if (!ready) return
     player.setLoop(loopEnabled ? loop : null)
     position = player.heardPosition
-    try {
-      localStorage.setItem(loopKey, JSON.stringify({ a: loopA, b: loopB, enabled: loopEnabled }))
-    } catch {}
   })
 
   $effect(() => {
@@ -135,10 +125,6 @@
         semitones = 0
       },
     )
-    try {
-      localStorage.setItem(pitchKey, String(semitones))
-      localStorage.setItem(`${pitchKey}:practice`, String(practiceSemitones ?? ''))
-    } catch {}
   })
 
   $effect(() => {
@@ -149,10 +135,6 @@
       // Without the shifter the speed change still works, but the pitch moves with it.
       (e) => (pitchError = `Keeping the pitch while changing speed ${e.message}`),
     )
-    try {
-      localStorage.setItem(speedKey, String(speed))
-      localStorage.setItem(`${speedKey}:practice`, String(practiceSpeed ?? ''))
-    } catch {}
   })
 
   function changeSpeed(delta: number) {
@@ -187,40 +169,97 @@
 
   const fmtSemitones = (st: number) => `${st > 0 ? '+' : ''}${st} st`
 
-  // Remember each song's mixer settings.
-  $effect(() => {
-    if (!ready) return
-    const json = JSON.stringify(mix)
-    try {
-      localStorage.setItem(mixKey, json)
-    } catch {}
-  })
+  // Settings are saved to the server (shared by all devices) shortly after the last change.
+  const SAVE_DELAY_MS = 600
+  let savedJson = ''
+  let saveTimer: ReturnType<typeof setTimeout> | undefined
+  let migratingLegacy = false
 
-  function restoreMix() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(mixKey) ?? 'null') as Record<string, Partial<Mix>> | null
-      if (!saved) return
-      for (const stem of player.stems) {
-        const s = saved[stem.name]
-        if (!s) continue
-        const m = mix[stem.name]
-        if (typeof s.volume === 'number') m.volume = s.volume
-        m.muted = !!s.muted
-        m.solo = !!s.solo && !m.muted
-        Object.assign(stem, m)
-      }
-      player.updateGains()
-    } catch {}
+  function currentSettings(): SongSettings {
+    return {
+      mix: $state.snapshot(mix),
+      loop: { a: loopA, b: loopB, enabled: loopEnabled },
+      semitones,
+      practiceSemitones,
+      speed,
+      practiceSpeed,
+    }
   }
 
-  function restoreLoop() {
+  $effect(() => {
+    if (!ready) return
+    const json = JSON.stringify(currentSettings())
+    if (json === savedJson) return
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => flushSettings(), SAVE_DELAY_MS)
+  })
+
+  function flushSettings(keepalive = false) {
+    clearTimeout(saveTimer)
+    const settings = currentSettings()
+    const json = JSON.stringify(settings)
+    if (!ready || json === savedJson) return
+    saveSettings(id, settings, keepalive).then(
+      () => {
+        savedJson = json
+        if (migratingLegacy) clearLegacySettings()
+      },
+      (e) => console.warn('Could not save settings', e),
+    )
+  }
+  onDestroy(() => flushSettings(true))
+
+  function applySettings(s: SongSettings) {
+    for (const stem of player.stems) {
+      const saved = s.mix?.[stem.name]
+      if (!saved) continue
+      const m = mix[stem.name]
+      if (typeof saved.volume === 'number') m.volume = saved.volume
+      m.muted = !!saved.muted
+      m.solo = !!saved.solo && !m.muted
+      Object.assign(stem, m)
+    }
+    player.updateGains()
+    if (s.loop) {
+      loopA = s.loop.a
+      loopB = s.loop.b
+      loopEnabled = s.loop.enabled && s.loop.a !== null && s.loop.b !== null
+    }
+    semitones = s.semitones ?? 0
+    practiceSemitones = s.practiceSemitones ?? null
+    speed = s.speed ?? 100
+    practiceSpeed = s.practiceSpeed ?? null
+  }
+
+  // Before settings moved to the server, each device kept its own in localStorage.
+  const legacyKeys = () =>
+    [`mix:${id}`, `loop:${id}`, `pitch:${id}`, `pitch:${id}:practice`, `speed:${id}`, `speed:${id}:practice`].map(
+      (k) => `ncosis:${k}`,
+    )
+
+  function legacySettings(): SongSettings | null {
     try {
-      const saved = JSON.parse(localStorage.getItem(loopKey) ?? 'null')
-      if (!saved) return
-      loopA = saved.a
-      loopB = saved.b
-      loopEnabled = saved.enabled && saved.a !== null && saved.b !== null
+      const get = (k: string) => localStorage.getItem(`ncosis:${k}`)
+      if (!legacyKeys().some((k) => localStorage.getItem(k) !== null)) return null
+      const loop = JSON.parse(get(`loop:${id}`) ?? 'null')
+      return {
+        mix: JSON.parse(get(`mix:${id}`) ?? 'null') ?? undefined,
+        loop: loop ? { a: loop.a, b: loop.b, enabled: loop.enabled } : undefined,
+        semitones: Number(get(`pitch:${id}`)) || 0,
+        practiceSemitones: Number(get(`pitch:${id}:practice`)) || null,
+        speed: Number(get(`speed:${id}`)) || 100,
+        practiceSpeed: Number(get(`speed:${id}:practice`)) || null,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  function clearLegacySettings() {
+    try {
+      for (const k of legacyKeys()) localStorage.removeItem(k)
     } catch {}
+    migratingLegacy = false
   }
 
   const clampTime = (t: number) => Math.round(Math.max(0, Math.min(t, player.duration)) * 100) / 100

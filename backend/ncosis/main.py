@@ -1,5 +1,6 @@
 """HTTP API plus static hosting of the built PWA."""
 
+import json
 import logging
 import shutil
 import re
@@ -11,7 +12,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import Body, FastAPI, HTTPException, UploadFile
 from starlette.background import BackgroundTask
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -131,6 +132,19 @@ def retry_song(song_id: str):
     db.update_song(song_id, status="queued", error=None, started_at=None, finished_at=None)
     worker.notify()
     return db.get_song(song_id)
+
+
+MAX_SETTINGS_BYTES = 16 * 1024
+
+
+@app.put("/api/songs/{song_id}/settings", status_code=204)
+def save_settings(song_id: str, settings: dict = Body(...)):
+    """Player settings for a song (mixer, loop, transpose, speed), shared by all devices.
+    The app owns the format; the server just stores it."""
+    _song_or_404(song_id)
+    if len(json.dumps(settings)) > MAX_SETTINGS_BYTES:
+        raise HTTPException(413, "Settings too large")
+    db.update_song(song_id, settings=settings)
 
 
 @app.delete("/api/songs/{song_id}", status_code=204)

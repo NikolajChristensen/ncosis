@@ -12,6 +12,17 @@ export interface Song {
   started_at: number | null
   finished_at: number | null
   notes: string | null
+  settings: SongSettings | null
+}
+
+/** Player settings for a song, stored on the server so every device shares them. */
+export interface SongSettings {
+  mix?: Record<string, { volume: number; muted: boolean; solo: boolean }>
+  loop?: { a: number | null; b: number | null; enabled: boolean }
+  semitones?: number
+  practiceSemitones?: number | null
+  speed?: number
+  practiceSpeed?: number | null
 }
 
 export interface ServerConfig {
@@ -94,4 +105,15 @@ export async function listLibrary(): Promise<LibraryEntry[]> {
 export async function addFromLibrary(path: string): Promise<Song> {
   const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }) }
   return (await check(await request('/api/library', init))).json()
+}
+
+/** `keepalive` lets the request finish even while the page is being left. */
+export async function saveSettings(id: string, settings: SongSettings, keepalive = false): Promise<void> {
+  const init = {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(settings),
+    keepalive,
+  }
+  await check(await request(`/api/songs/${id}/settings`, init))
 }
