@@ -31,6 +31,8 @@
   // Transpose in semitones, remembered per song (e.g. -1 for songs in Eb tuning).
   const MAX_SEMITONES = 12
   let semitones = $state(0)
+  // The last transpose other than 0, so the middle button can toggle back to it.
+  let practiceSemitones = $state<number | null>(null)
   let pitchError = $state('')
   const pitchKey = $derived(`ncosis:pitch:${id}`)
 
@@ -65,6 +67,7 @@
       restoreLoop()
       try {
         semitones = Number(localStorage.getItem(pitchKey)) || 0
+        practiceSemitones = Number(localStorage.getItem(`${pitchKey}:practice`)) || null
         speed = Number(localStorage.getItem(speedKey)) || 100
         practiceSpeed = Number(localStorage.getItem(`${speedKey}:practice`)) || null
       } catch {}
@@ -132,6 +135,7 @@
     )
     try {
       localStorage.setItem(pitchKey, String(semitones))
+      localStorage.setItem(`${pitchKey}:practice`, String(practiceSemitones ?? ''))
     } catch {}
   })
 
@@ -166,7 +170,20 @@
 
   function transpose(delta: number) {
     semitones = Math.max(-MAX_SEMITONES, Math.min(MAX_SEMITONES, semitones + delta))
+    if (semitones !== 0) practiceSemitones = semitones
   }
+
+  /** Toggle between no transpose and the last transpose. */
+  function toggleTranspose() {
+    if (semitones !== 0) {
+      practiceSemitones = semitones
+      semitones = 0
+    } else if (practiceSemitones !== null) {
+      semitones = practiceSemitones
+    }
+  }
+
+  const fmtSemitones = (st: number) => `${st > 0 ? '+' : ''}${st} st`
 
   function restoreLoop() {
     try {
@@ -318,8 +335,14 @@
     <div class="pitch">
       <span class="label">Transpose</span>
       <button onclick={() => transpose(-1)} disabled={semitones <= -MAX_SEMITONES} aria-label="Transpose down">−</button>
-      <button class="value" class:on={semitones !== 0} onclick={() => (semitones = 0)} title="Tap to reset">
-        {semitones > 0 ? '+' : ''}{semitones} st
+      <button
+        class="value"
+        class:on={semitones !== 0}
+        onclick={toggleTranspose}
+        title={semitones !== 0 ? 'Tap for 0 st' : practiceSemitones ? `Tap for ${fmtSemitones(practiceSemitones)}` : ''}
+      >
+        {fmtSemitones(semitones)}
+        {#if semitones === 0 && practiceSemitones}<span class="alt">↺ {fmtSemitones(practiceSemitones)}</span>{/if}
       </button>
       <button onclick={() => transpose(1)} disabled={semitones >= MAX_SEMITONES} aria-label="Transpose up">+</button>
     </div>
