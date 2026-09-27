@@ -31,6 +31,7 @@ export default defineConfig({
   server: {
     host: true,
     // The backend serves HTTPS with a private CA; don't verify it in dev.
-    proxy: { '/api': { target: 'https://localhost:8000', secure: false } },
+    // NCOSIS_API=https://10.0.0.50 develops against the deployed server.
+    proxy: { '/api': { target: process.env.NCOSIS_API ?? 'https://localhost:8000', secure: false } },
   },
 })

@@ -1,5 +1,7 @@
 // Plays all stems of a song in sample-accurate sync, each through its own gain node.
-// The mix goes through a pitch shifter (Signalsmith Stretch) only while transposed.
+// Tempo changes play the stems faster/slower (which also shifts their pitch); the mix then
+// goes through a pitch shifter (Signalsmith Stretch) that undoes that shift and applies any
+// transpose. At normal speed and pitch the shifter is bypassed.
 
 import SignalsmithStretch from 'signalsmith-stretch'
 
@@ -61,6 +63,7 @@ export class StemPlayer {
   private stretchReady: Promise<void> | null = null
   private routedThroughStretch = false
   private semitones = 0
+  private rate = 1 // playback speed; 0.5 = half speed
   private stretchLatency = 0
   private sources: AudioBufferSourceNode[] = []
   private offset = 0 // song position when playback (re)started or paused
@@ -89,7 +92,7 @@ export class StemPlayer {
 
   get position(): number {
     if (!this.playing) return this.offset
-    const raw = this.offset + Math.max(0, this.ctx.currentTime - this.startedAt)
+    const raw = this.offset + Math.max(0, this.ctx.currentTime - this.startedAt) * this.rate
     const loop = this.loop
     // While looping, playback started before the loop end, so once it reaches
     // the loop end it cycles between start and end.
@@ -103,9 +106,10 @@ export class StemPlayer {
   get heardPosition(): number {
     const pos = this.position
     if (!this.playing || !this.routedThroughStretch) return pos
-    const heard = pos - this.stretchLatency
+    const lag = this.stretchLatency * this.rate // in song time
+    const heard = pos - lag
     // Just after a loop wrap, what you hear is still the end of the loop.
-    if (this.looping && this.loop && pos - this.loop.start < this.stretchLatency && heard < this.loop.start) {
+    if (this.looping && this.loop && pos - this.loop.start < lag && heard < this.loop.start) {
       return this.loop.end - (this.loop.start - heard)
     }
     return Math.max(0, heard)
@@ -119,9 +123,7 @@ export class StemPlayer {
     const pos = this.position
     this.loop = loop
     if (!this.playing) return
-    // Re-base the position clock so `position` stays correct under the new loop.
-    this.offset = pos
-    this.startedAt = Math.max(this.ctx.currentTime, this.startedAt)
+    this.rebase(pos)
     this.looping = loop !== null && pos < loop.end
     for (const src of this.sources) this.applyLoop(src)
   }
@@ -136,6 +138,7 @@ export class StemPlayer {
     this.sources = this.stems.map((stem) => {
       const src = this.ctx.createBufferSource()
       src.buffer = stem.buffer
+      src.playbackRate.value = this.rate
       this.applyLoop(src)
       src.connect(stem.gain)
       src.start(when, this.offset)
@@ -179,10 +182,27 @@ export class StemPlayer {
     }
   }
 
-  /** Transpose the whole mix by `semitones` without changing tempo. 0 bypasses the shifter. */
-  async setSemitones(semitones: number) {
+  /** Transpose the whole mix by `semitones` without changing tempo. */
+  setSemitones(semitones: number): Promise<void> {
     this.semitones = semitones
-    if (semitones !== 0 && !this.stretch) {
+    return this.updateShifter()
+  }
+
+  /** Change the tempo (1 = original, 0.5 = half speed) without changing pitch. */
+  setRate(rate: number): Promise<void> {
+    if (this.playing) {
+      // Re-base the clock at the current position before the speed changes.
+      this.rebase(this.position)
+      for (const src of this.sources) src.playbackRate.setValueAtTime(rate, this.ctx.currentTime)
+    }
+    this.rate = rate
+    return this.updateShifter()
+  }
+
+  /** Route the mix through the shifter with whatever pitch shift speed and transpose need. */
+  private async updateShifter() {
+    const needed = () => this.semitones - 12 * Math.log2(this.rate)
+    if (Math.abs(needed()) > 1e-6 && !this.stretch) {
       // AudioWorklet (which the shifter runs on) only exists on HTTPS or localhost.
       if (!this.ctx.audioWorklet) throw new Error('needs the app to be opened over HTTPS')
       this.stretchReady ??= (async () => {
@@ -193,11 +213,11 @@ export class StemPlayer {
       })()
       await this.stretchReady
     }
-    // Re-read: another call may have changed it while the shifter was loading.
-    const st = this.semitones
+    // Re-read: another call may have changed things while the shifter was loading.
+    const st = needed()
     const stretch = this.stretch
     if (!stretch) return
-    if (st === 0) {
+    if (Math.abs(st) <= 1e-6) {
       if (this.routedThroughStretch) {
         this.bus.disconnect()
         this.bus.connect(this.ctx.destination)
@@ -217,6 +237,12 @@ export class StemPlayer {
   async close() {
     this.stopSources()
     await this.ctx.close()
+  }
+
+  /** Restart the position clock at `pos` from now, e.g. before changing loop or speed. */
+  private rebase(pos: number) {
+    this.offset = pos
+    this.startedAt = Math.max(this.ctx.currentTime, this.startedAt)
   }
 
   private applyLoop(src: AudioBufferSourceNode) {

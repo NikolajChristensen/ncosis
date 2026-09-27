@@ -34,6 +34,12 @@
   let pitchError = $state('')
   const pitchKey = $derived(`ncosis:pitch:${id}`)
 
+  // Playback speed in percent, remembered per song. Pitch stays the same.
+  const MIN_SPEED = 50
+  const MAX_SPEED = 125
+  let speed = $state(100)
+  const speedKey = $derived(`ncosis:speed:${id}`)
+
   const player = new StemPlayer()
   // Handy for poking at playback from the devtools console.
   if (import.meta.env.DEV) Object.assign(window, { player })
@@ -57,6 +63,7 @@
       restoreLoop()
       try {
         semitones = Number(localStorage.getItem(pitchKey)) || 0
+        speed = Number(localStorage.getItem(speedKey)) || 100
       } catch {}
       ready = true
     } catch (e) {
@@ -124,6 +131,23 @@
       localStorage.setItem(pitchKey, String(semitones))
     } catch {}
   })
+
+  $effect(() => {
+    if (!ready) return
+    const sp = speed
+    player.setRate(sp / 100).then(
+      () => sp !== 100 && (pitchError = ''),
+      // Without the shifter the speed change still works, but the pitch moves with it.
+      (e) => (pitchError = `Keeping the pitch while changing speed ${e.message}`),
+    )
+    try {
+      localStorage.setItem(speedKey, String(speed))
+    } catch {}
+  })
+
+  function changeSpeed(delta: number) {
+    speed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, speed + delta))
+  }
 
   function transpose(delta: number) {
     semitones = Math.max(-MAX_SEMITONES, Math.min(MAX_SEMITONES, semitones + delta))
@@ -284,6 +308,14 @@
       </button>
       <button onclick={() => transpose(1)} disabled={semitones >= MAX_SEMITONES} aria-label="Transpose up">+</button>
     </div>
+    <div class="pitch">
+      <span class="label">Speed</span>
+      <button onclick={() => changeSpeed(-5)} disabled={speed <= MIN_SPEED} aria-label="Slower">−</button>
+      <button class="value" class:on={speed !== 100} onclick={() => (speed = 100)} title="Tap to reset">
+        {speed}%
+      </button>
+      <button onclick={() => changeSpeed(5)} disabled={speed >= MAX_SPEED} aria-label="Faster">+</button>
+    </div>
     {#if pitchError}<p class="error pitch-error">{pitchError}</p>{/if}
   </section>
 
@@ -427,6 +459,8 @@
     color: var(--muted-text);
     font-size: 0.85rem;
     margin-right: 4px;
+    min-width: 5.5em;
+    text-align: right;
   }
   .pitch button {
     height: 40px;
