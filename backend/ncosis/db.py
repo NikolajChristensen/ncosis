@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS songs (
     started_at REAL,
     finished_at REAL,
     notes TEXT,                    -- progress message while processing
-    mvsep_job TEXT                 -- running MVSEP job, so a restart resumes instead of resubmitting
+    mvsep_job TEXT,                -- running MVSEP job, so a restart resumes instead of resubmitting
+    origin TEXT                    -- path in the music library, for songs added from there
 );
 """
 
@@ -41,7 +42,7 @@ def init():
     with connect() as conn:
         conn.executescript(SCHEMA)
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(songs)")}
-        for column in ("notes", "mvsep_job"):
+        for column in ("notes", "mvsep_job", "origin"):
             if column not in columns:
                 conn.execute(f"ALTER TABLE songs ADD COLUMN {column} TEXT")
         # A job interrupted by a restart is simply run again.
@@ -56,11 +57,12 @@ def _row(row: sqlite3.Row | None) -> dict | None:
     return song
 
 
-def create_song(song_id: str, title: str, filename: str, duration: float) -> dict:
+def create_song(song_id: str, title: str, filename: str, duration: float, origin: str | None = None) -> dict:
     with connect() as conn:
         conn.execute(
-            "INSERT INTO songs (id, title, filename, duration, status, created_at) VALUES (?, ?, ?, ?, 'queued', ?)",
-            (song_id, title, filename, duration, time.time()),
+            "INSERT INTO songs (id, title, filename, duration, origin, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, 'queued', ?)",
+            (song_id, title, filename, duration, origin, time.time()),
         )
     return get_song(song_id)
 

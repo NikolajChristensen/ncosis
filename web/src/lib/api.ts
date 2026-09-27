@@ -17,6 +17,12 @@ export interface Song {
 export interface ServerConfig {
   version: string
   mvsepConfigured: boolean
+  library: boolean
+}
+
+export interface LibraryEntry {
+  path: string // relative to the server's music folder
+  song: string | null // id of the song already added from it
 }
 
 /** fetch, with a readable error when the server can't be reached at all. */
@@ -79,4 +85,13 @@ export function stemUrl(id: string, stem: string): string {
 
 export function stemsZipUrl(id: string): string {
   return `/api/songs/${id}/stems.zip`
+}
+
+export async function listLibrary(): Promise<LibraryEntry[]> {
+  return (await check(await request('/api/library'))).json()
+}
+
+export async function addFromLibrary(path: string): Promise<Song> {
+  const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path }) }
+  return (await check(await request('/api/library', init))).json()
 }

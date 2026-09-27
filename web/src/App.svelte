@@ -1,5 +1,6 @@
 <script lang="ts">
   import Library from './lib/Library.svelte'
+  import LibraryBrowser from './lib/LibraryBrowser.svelte'
   import Player from './lib/Player.svelte'
 
   let hash = $state(location.hash)
@@ -9,7 +10,9 @@
 <svelte:window onhashchange={() => (hash = location.hash)} />
 
 <main>
-  {#if songId}
+  {#if hash.startsWith('#/add')}
+    <LibraryBrowser />
+  {:else if songId}
     {#key songId}
       <Player id={songId} />
     {/key}

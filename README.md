@@ -54,6 +54,12 @@ next load. Roll back with `git push -f lxc <commit>:master`.
 
 The app runs at `https://<lxc-ip>/`. Logs: `journalctl -u ncosis -f`.
 
+## Music library (optional)
+
+With `NCOSIS_LIBRARY_DIR` pointing at a folder of music, the app gets an "Add from library" screen to search
+it and add songs without uploading them. On the LXC the service uses `/mnt/music`: mount the share read-only on
+the Proxmox host and pass it in with `pct set <ctid> -mp0 <host-path>,mp=/mnt/music,ro=1`.
+
 ## HTTPS without a domain
 
 Transpose, installing the app, keeping the screen on and auto-updates need HTTPS. `deploy/make-certs.sh <dir> <ip>`
@@ -67,7 +73,7 @@ Install a certificate → CA certificate.
 
 Environment variables (see `backend/ncosis/config.py`; on the LXC put them in `/etc/ncosis.env`):
 `NCOSIS_DATA_DIR`, `NCOSIS_WEB_DIST`, `NCOSIS_MVSEP_TOKEN` (instead of the `mvsep_token` file),
-`NCOSIS_STEM_BITRATE` (default `160k`), `NCOSIS_MAX_UPLOAD_MB` (default `200`), `NCOSIS_CA_CERT`.
+`NCOSIS_LIBRARY_DIR`, `NCOSIS_STEM_BITRATE` (default `160k`), `NCOSIS_MAX_UPLOAD_MB` (default `200`), `NCOSIS_CA_CERT`.
 
 ## Ideas for later
 

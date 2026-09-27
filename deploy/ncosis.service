@@ -9,6 +9,8 @@ Group=ncosis
 WorkingDirectory=/opt/ncosis/backend
 Environment=NCOSIS_DATA_DIR=/var/lib/ncosis
 Environment=NCOSIS_WEB_DIST=/opt/ncosis/web/dist
+# Music folder passed in from the Proxmox host (read-only); "Add from library" appears once it exists.
+Environment=NCOSIS_LIBRARY_DIR=/mnt/music
 # Optional overrides, e.g. NCOSIS_MVSEP_TOKEN=... (root-owned, mode 600).
 EnvironmentFile=-/etc/ncosis.env
 ExecStart=/opt/ncosis/backend/.venv/bin/uvicorn ncosis.main:app --host 0.0.0.0 --port 443 \

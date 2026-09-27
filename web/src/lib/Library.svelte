@@ -116,6 +116,7 @@
 
 <header>
   <h1>ncosis</h1>
+  {#if serverConfig?.library}<a class="from-library" href="#/add">From library</a>{/if}
   <label class="upload" class:busy={uploading}>
     {uploading ? 'Uploading…' : '+ Add song'}
     <input type="file" accept="audio/*,.flac,.mp3,.wav,.m4a,.ogg,.opus" multiple onchange={pick} disabled={!!uploading} />
@@ -188,6 +189,16 @@
   h1 {
     margin: 0;
     font-size: 1.4rem;
+  }
+  .from-library {
+    margin-left: auto;
+    margin-right: 8px;
+    padding: 9px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--muted);
+    color: inherit;
+    text-decoration: none;
+    font-weight: 600;
   }
   .upload {
     background: var(--accent);

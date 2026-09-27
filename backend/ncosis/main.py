@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import uuid
 import zipfile
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,8 +15,9 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from starlette.background import BackgroundTask
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from . import audio, config, db, mvsep, worker
+from . import audio, config, db, library, mvsep, worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -40,7 +42,11 @@ def _song_or_404(song_id: str) -> dict:
 
 @app.get("/api/config")
 def get_config():
-    return {"version": config.version(), "mvsepConfigured": config.mvsep_token() is not None}
+    return {
+        "version": config.version(),
+        "mvsepConfigured": config.mvsep_token() is not None,
+        "library": library.enabled(),
+    }
 
 
 @app.get("/api/songs")
@@ -53,21 +59,14 @@ def get_song(song_id: str):
     return _song_or_404(song_id)
 
 
-@app.post("/api/songs", status_code=201)
-def upload_song(file: UploadFile):
+def _add_song(name: str, write: Callable[[Path], None], origin: str | None = None) -> dict:
+    """Store a new song's source file (written by `write`), check it's audio and queue it."""
     song_id = uuid.uuid4().hex[:12]
     song_dir = config.SONGS_DIR / song_id
     song_dir.mkdir(parents=True)
-    name = Path(file.filename or "upload").name
     filename = "source" + Path(name).suffix.lower()
     try:
-        with open(song_dir / filename, "wb") as out:
-            size = 0
-            while chunk := file.file.read(1024 * 1024):
-                size += len(chunk)
-                if size > config.MAX_UPLOAD_BYTES:
-                    raise HTTPException(413, f"File is larger than {config.MAX_UPLOAD_BYTES // 2**20} MB")
-                out.write(chunk)
+        write(song_dir / filename)
         try:
             info = audio.probe(song_dir / filename)
         except (subprocess.CalledProcessError, KeyError, ValueError):
@@ -80,9 +79,47 @@ def upload_song(file: UploadFile):
         title = f"{info['artist']} – {info['title']}"
     else:
         title = info["title"] or Path(name).stem
-    song = db.create_song(song_id, title, filename, info["duration"])
+    song = db.create_song(song_id, title, filename, info["duration"], origin)
     worker.notify()
     return song
+
+
+@app.post("/api/songs", status_code=201)
+def upload_song(file: UploadFile):
+    def write(dest: Path):
+        with open(dest, "wb") as out:
+            size = 0
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > config.MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, f"File is larger than {config.MAX_UPLOAD_BYTES // 2**20} MB")
+                out.write(chunk)
+
+    return _add_song(Path(file.filename or "upload").name, write)
+
+
+@app.get("/api/library")
+def list_library():
+    """Songs in the music library, each with the id of the song already added from it (if any)."""
+    if not library.enabled():
+        raise HTTPException(404, "No music library configured")
+    added = {s["origin"]: s["id"] for s in db.list_songs() if s["origin"]}
+    return [{"path": path, "song": added.get(path)} for path in library.files()]
+
+
+class LibraryAdd(BaseModel):
+    path: str
+
+
+@app.post("/api/library", status_code=201)
+def add_from_library(req: LibraryAdd):
+    if not library.enabled():
+        raise HTTPException(404, "No music library configured")
+    try:
+        src = library.resolve(req.path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _add_song(src.name, lambda dest: shutil.copyfile(src, dest), origin=req.path)
 
 
 @app.post("/api/songs/{song_id}/retry")

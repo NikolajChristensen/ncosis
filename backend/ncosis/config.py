@@ -20,6 +20,10 @@ STEM_BITRATE = os.environ.get("NCOSIS_STEM_BITRATE", "160k")
 # install it. Only the certificate is served, never a key.
 CA_CERT = Path(os.environ.get("NCOSIS_CA_CERT", DATA_DIR / "tls" / "ca.crt"))
 
+# Folder of the user's own music (read-only), offered in the app's "Add from library" screen.
+_library = os.environ.get("NCOSIS_LIBRARY_DIR")
+LIBRARY_DIR = Path(_library) if _library else None
+
 MAX_UPLOAD_BYTES = int(os.environ.get("NCOSIS_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 
 
