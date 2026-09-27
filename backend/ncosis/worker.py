@@ -44,6 +44,10 @@ def _process(song: dict):
         results = mvsep.fetch(job, work, on_wait=lambda msg: db.update_song(song_id, notes=msg))
         for stem, path in results.items():
             audio.to_opus(path, stems_dir / f"{stem}.opus")
+        # Remove stems from an earlier run that this one didn't produce.
+        for old in stems_dir.glob("*.opus"):
+            if old.stem not in results:
+                old.unlink()
         db.update_song(song_id, status="done", stems=sorted(results), notes=None, finished_at=time.time())
         log.info("Finished %s in %.0fs", song_id, time.time() - db.get_song(song_id)["started_at"])
     except Exception as e:
