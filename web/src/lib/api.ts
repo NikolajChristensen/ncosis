@@ -24,7 +24,7 @@ async function request(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init)
   } catch {
-    throw new Error(`Can't reach the ncosis server at ${location.host}. Is it running, and is this the right address?`)
+    throw new Error(`Couldn't talk to the ncosis server at ${location.host}. Is it running, and is this the right address?`)
   }
 }
 
@@ -52,8 +52,16 @@ export async function getSong(id: string): Promise<Song> {
 }
 
 export async function uploadSong(file: File): Promise<Song> {
+  // Read the file up front instead of letting the browser stream it during the upload:
+  // on network shares (SMB) Chromium often thinks the file changed and aborts mid-request.
+  let data: ArrayBuffer
+  try {
+    data = await file.arrayBuffer()
+  } catch (e) {
+    throw new Error(`Couldn't read the file (${(e as Error).message})`)
+  }
   const body = new FormData()
-  body.append('file', file)
+  body.append('file', new Blob([data], { type: file.type }), file.name)
   return (await check(await request('/api/songs', { method: 'POST', body }))).json()
 }
 
