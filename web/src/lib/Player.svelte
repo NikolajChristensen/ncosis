@@ -27,6 +27,7 @@
   let loopEnabled = $state(false)
   const loop = $derived<Loop | null>(loopA !== null && loopB !== null ? { start: loopA, end: loopB } : null)
   const loopKey = $derived(`ncosis:loop:${id}`)
+  const mixKey = $derived(`ncosis:mix:${id}`)
 
   // Transpose in semitones, remembered per song (e.g. -1 for songs in Eb tuning).
   const MAX_SEMITONES = 12
@@ -64,6 +65,7 @@
         (n) => (loaded = n),
       )
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
+      restoreMix()
       restoreLoop()
       try {
         semitones = Number(localStorage.getItem(pitchKey)) || 0
@@ -184,6 +186,32 @@
   }
 
   const fmtSemitones = (st: number) => `${st > 0 ? '+' : ''}${st} st`
+
+  // Remember each song's mixer settings.
+  $effect(() => {
+    if (!ready) return
+    const json = JSON.stringify(mix)
+    try {
+      localStorage.setItem(mixKey, json)
+    } catch {}
+  })
+
+  function restoreMix() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(mixKey) ?? 'null') as Record<string, Partial<Mix>> | null
+      if (!saved) return
+      for (const stem of player.stems) {
+        const s = saved[stem.name]
+        if (!s) continue
+        const m = mix[stem.name]
+        if (typeof s.volume === 'number') m.volume = s.volume
+        m.muted = !!s.muted
+        m.solo = !!s.solo && !m.muted
+        Object.assign(stem, m)
+      }
+      player.updateGains()
+    } catch {}
+  }
 
   function restoreLoop() {
     try {
