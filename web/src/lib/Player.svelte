@@ -74,6 +74,8 @@
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
       const legacy = song.settings ? null : legacySettings()
       applySettings(song.settings ?? legacy ?? {})
+      // Start at the loop's A marker, where practice usually resumes.
+      if (loopA !== null) player.seek(loopA)
       // Settings from the server are already saved; ones carried over from this device are not.
       savedJson = legacy ? '' : JSON.stringify(currentSettings())
       migratingLegacy = !!legacy
