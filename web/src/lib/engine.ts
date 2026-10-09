@@ -4,6 +4,7 @@
 // transpose. At normal speed and pitch the shifter is bypassed.
 
 import SignalsmithStretch from 'signalsmith-stretch'
+import { fetchStem } from './stemCache'
 
 export interface Stem {
   name: string
@@ -77,7 +78,7 @@ export class StemPlayer {
     let done = 0
     const stems = await Promise.all(
       urls.map(async ({ name, url }) => {
-        const res = await fetch(url)
+        const res = await fetchStem(url)
         if (!res.ok) throw new Error(`Could not load ${name} stem (${res.status})`)
         const buffer = await this.ctx.decodeAudioData(await res.arrayBuffer())
         onProgress(++done)

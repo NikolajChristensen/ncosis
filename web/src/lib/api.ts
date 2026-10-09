@@ -92,8 +92,9 @@ export async function deleteSong(id: string): Promise<void> {
   await check(await request(`/api/songs/${id}`, { method: 'DELETE' }))
 }
 
-export function stemUrl(id: string, stem: string): string {
-  return `/api/songs/${id}/stems/${stem}.opus`
+/** The version (`v`) changes when a song is reprocessed, so cached stems are never stale. */
+export function stemUrl(song: Song, stem: string): string {
+  return `/api/songs/${song.id}/stems/${stem}.opus?v=${Math.round(song.finished_at ?? 0)}`
 }
 
 export function stemsZipUrl(id: string): string {

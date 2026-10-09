@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte'
   import { getSong, saveSettings, stemsZipUrl, stemUrl, type Song, type SongSettings } from './api'
   import { MIN_LOOP, StemPlayer, type Loop, type Stem } from './engine'
+  import { touchSong } from './stemCache'
   import Waveform from './Waveform.svelte'
 
   let { id }: { id: string } = $props()
@@ -67,10 +68,9 @@
     try {
       song = await getSong(id)
       const stems = [...song.stems].sort((a, b) => STEM_ORDER.indexOf(a) - STEM_ORDER.indexOf(b))
-      await player.load(
-        stems.map((name) => ({ name, url: stemUrl(id, name) })),
-        (n) => (loaded = n),
-      )
+      const urls = stems.map((name) => ({ name, url: stemUrl(song!, name) }))
+      await player.load(urls, (n) => (loaded = n))
+      touchSong(id, urls.map((u) => u.url))
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
       const legacy = song.settings ? null : legacySettings()
       applySettings(song.settings ?? legacy ?? {})
