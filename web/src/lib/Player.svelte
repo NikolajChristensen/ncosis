@@ -80,6 +80,11 @@
       savedJson = legacy ? '' : JSON.stringify(currentSettings())
       migratingLegacy = !!legacy
       ready = true
+      // Autostart playback when the song opens.
+      player.play().then(() => {
+        playing = true
+        holdWakeLock()
+      })
     } catch (e) {
       error = (e as Error).message
     }
