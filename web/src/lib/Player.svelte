@@ -42,6 +42,9 @@
   // The last speed other than 100%, so the middle button can toggle back to it.
   let practiceSpeed = $state<number | null>(null)
 
+  // Master volume for the whole mix, remembered per song.
+  let masterVolume = $state(1)
+
   // Tempo: detected on the server, or tapped in by the user (saved with the settings).
   let bpmOverride = $state<number | null>(null)
   const baseBpm = $derived(bpmOverride ?? (song?.bpm || null))
@@ -157,6 +160,11 @@
     )
   })
 
+  $effect(() => {
+    if (!ready) return
+    player.setMasterVolume(masterVolume)
+  })
+
   function changeSpeed(delta: number) {
     speed = Math.max(MIN_SPEED, Math.min(MAX_SPEED, speed + delta))
     if (speed !== 100) practiceSpeed = speed
@@ -226,6 +234,7 @@
       speed,
       practiceSpeed,
       bpm: bpmOverride,
+      masterVolume,
     }
   }
 
@@ -273,6 +282,7 @@
     speed = s.speed ?? 100
     practiceSpeed = s.practiceSpeed ?? null
     bpmOverride = s.bpm ?? null
+    masterVolume = s.masterVolume ?? 1
   }
 
   // Before settings moved to the server, each device kept its own in localStorage.
@@ -360,11 +370,12 @@
 
   const DEFAULT_MIX: Mix = { volume: 1, muted: false, solo: false }
   const isDefault = $derived(
-    Object.values(mix).every((m) => m.volume === 1 && !m.muted && !m.solo),
+    Object.values(mix).every((m) => m.volume === 1 && !m.muted && !m.solo) && masterVolume === 1,
   )
 
   function resetMix() {
     for (const stem of player.stems) change(stem, DEFAULT_MIX)
+    masterVolume = 1
   }
 
   function isAudible(name: string): boolean {
@@ -518,6 +529,21 @@
     <div class="mixer-head">
       <span>Mixer</span>
       <button class="reset" onclick={resetMix} disabled={isDefault}>Reset</button>
+    </div>
+    <div class="stem master">
+      <span class="name">Master</span>
+      <div class="spacer"></div>
+      <input
+        type="range"
+        min="0"
+        max="1.5"
+        step="0.01"
+        value={masterVolume}
+        oninput={(e) => (masterVolume = +e.currentTarget.value)}
+        ondblclick={() => (masterVolume = 1)}
+        title="Double-tap to reset"
+        aria-label="Master volume"
+      />
     </div>
     {#each player.stems as stem (stem.name)}
       {@const m = mix[stem.name]}
@@ -796,6 +822,12 @@
     background: var(--surface);
     border-radius: 10px;
     padding: 8px 12px;
+  }
+  .stem.master {
+    grid-template-columns: 6.5em 1fr;
+  }
+  .stem.master .spacer {
+    display: none;
   }
   .stem.silent .name,
   .stem.silent input {

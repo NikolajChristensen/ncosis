@@ -60,6 +60,8 @@ export class StemPlayer {
   private looping = false
   // All stem gains feed this bus, which goes either straight out or through `stretch`.
   private bus = this.ctx.createGain()
+  // Master volume control sits between bus and output.
+  private masterGain = this.ctx.createGain()
   private stretch: (AudioNode & { schedule(o: object): void; stop(): void }) | null = null
   private stretchReady: Promise<void> | null = null
   private routedThroughStretch = false
@@ -71,7 +73,8 @@ export class StemPlayer {
   private startedAt = 0 // ctx.currentTime matching `offset`
 
   constructor() {
-    this.bus.connect(this.ctx.destination)
+    this.bus.connect(this.masterGain)
+    this.masterGain.connect(this.ctx.destination)
   }
 
   async load(urls: { name: string; url: string }[], onProgress: (done: number) => void) {
@@ -181,6 +184,11 @@ export class StemPlayer {
       // Short ramp avoids clicks when toggling.
       stem.gain.gain.setTargetAtTime(audible ? stem.volume : 0, this.ctx.currentTime, 0.015)
     }
+  }
+
+  /** Set the master volume (0–1.5) for all stems. */
+  setMasterVolume(volume: number) {
+    this.masterGain.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.015)
   }
 
   /** Transpose the whole mix by `semitones` without changing tempo. */

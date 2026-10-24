@@ -25,6 +25,7 @@ export interface SongSettings {
   speed?: number
   practiceSpeed?: number | null
   bpm?: number | null // tempo tapped in by the user, overriding the detected one
+  masterVolume?: number
 }
 
 export interface ServerConfig {
