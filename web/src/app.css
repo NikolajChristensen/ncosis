@@ -36,7 +36,9 @@ body {
 main {
   max-width: 640px;
   margin: 0 auto;
-  padding: 16px;
+  /* Capacitor draws edge-to-edge on Android; keep content clear of the status/nav bars. */
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
 }
 
 button {

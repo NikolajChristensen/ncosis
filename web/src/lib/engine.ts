@@ -4,7 +4,6 @@
 // transpose. At normal speed and pitch the shifter is bypassed.
 
 import SignalsmithStretch from 'signalsmith-stretch'
-import { fetchStem } from './stemCache'
 
 export interface Stem {
   name: string
@@ -77,21 +76,23 @@ export class StemPlayer {
     this.masterGain.connect(this.ctx.destination)
   }
 
-  async load(urls: { name: string; url: string }[], onProgress: (done: number) => void) {
-    let done = 0
-    const stems = await Promise.all(
-      urls.map(async ({ name, url }) => {
-        const res = await fetchStem(url)
-        if (!res.ok) throw new Error(`Could not load ${name} stem (${res.status})`)
-        const buffer = await this.ctx.decodeAudioData(await res.arrayBuffer())
-        onProgress(++done)
-        const gain = this.ctx.createGain()
-        gain.connect(this.bus)
-        return { name, buffer, gain, volume: 1, muted: false, solo: false, peaks: computePeaks(buffer) }
-      }),
-    )
-    this.stems.push(...stems)
-    this.duration = Math.max(...stems.map((s) => s.buffer.duration))
+  /**
+   * Decode and add one stem. Loaded one at a time (not in parallel) by the caller so only one
+   * stem's raw bytes are ever in memory at once — Capacitor's WebView runs in the app's own
+   * Android heap, much smaller than a normal mobile browser tab gets, and holding all stems'
+   * bytes/decoded buffers at once risks an OOM on longer songs.
+   */
+  async loadStem(name: string, bytes: ArrayBuffer): Promise<void> {
+    let buffer: AudioBuffer
+    try {
+      buffer = await this.ctx.decodeAudioData(bytes)
+    } catch (e) {
+      throw new Error(`Could not decode ${name} stem (${(e as Error).message})`)
+    }
+    const gain = this.ctx.createGain()
+    gain.connect(this.bus)
+    this.stems.push({ name, buffer, gain, volume: 1, muted: false, solo: false, peaks: computePeaks(buffer) })
+    this.duration = Math.max(this.duration, buffer.duration)
   }
 
   get position(): number {
@@ -216,7 +217,7 @@ export class StemPlayer {
       if (!this.ctx.audioWorklet) throw new Error('needs the app to be opened over HTTPS')
       this.stretchReady ??= (async () => {
         const node = await SignalsmithStretch(this.ctx, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] })
-        node.connect(this.ctx.destination)
+        node.connect(this.masterGain)
         this.stretchLatency = await node.latency()
         this.stretch = node
       })()
@@ -229,7 +230,7 @@ export class StemPlayer {
     if (Math.abs(st) <= 1e-6) {
       if (this.routedThroughStretch) {
         this.bus.disconnect()
-        this.bus.connect(this.ctx.destination)
+        this.bus.connect(this.masterGain)
         stretch.stop()
         this.routedThroughStretch = false
       }

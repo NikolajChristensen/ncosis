@@ -1,9 +1,6 @@
 node_modules/
 web/dist/
-web/dev-dist/
-backend/.venv/
-backend/data/
-__pycache__/
-*.egg-info/
-VERSION
 .vite/
+
+# Leftovers from the old backend (deleted; these directories may still exist locally)
+backend/

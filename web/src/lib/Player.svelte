@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { getSong, saveSettings, stemsZipUrl, stemUrl, type Song, type SongSettings } from './api'
+  import { Share } from '@capacitor/share'
+  import { exportStemsZip, getSong, readStemBytes, saveSettings, type Song, type SongSettings } from './api'
   import { MIN_LOOP, StemPlayer, type Loop, type Stem } from './engine'
-  import { touchSong } from './stemCache'
+  import { writeCacheFile } from './stemStorage'
   import Waveform from './Waveform.svelte'
 
   let { id }: { id: string } = $props()
@@ -70,10 +71,17 @@
   async function init() {
     try {
       song = await getSong(id)
-      const stems = [...song.stems].sort((a, b) => STEM_ORDER.indexOf(a) - STEM_ORDER.indexOf(b))
-      const urls = stems.map((name) => ({ name, url: stemUrl(song!, name) }))
-      await player.load(urls, (n) => (loaded = n))
-      touchSong(id, urls.map((u) => u.url))
+      const stemNames = [...song.stems].sort((a, b) => STEM_ORDER.indexOf(a) - STEM_ORDER.indexOf(b))
+      // Decode one stem at a time (keeps peak decoded-audio memory to one stem's worth), but
+      // prefetch the next stem's compressed bytes while the current one decodes — overlaps I/O
+      // with CPU decode time instead of doing them strictly back-to-back.
+      let nextBytes = readStemBytes(song, stemNames[0])
+      for (let i = 0; i < stemNames.length; i++) {
+        const bytes = await nextBytes
+        if (i + 1 < stemNames.length) nextBytes = readStemBytes(song, stemNames[i + 1])
+        await player.loadStem(stemNames[i], bytes)
+        loaded++
+      }
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
       const legacy = song.settings ? null : legacySettings()
       applySettings(song.settings ?? legacy ?? {})
@@ -246,12 +254,12 @@
     saveTimer = setTimeout(() => flushSettings(), SAVE_DELAY_MS)
   })
 
-  function flushSettings(keepalive = false) {
+  function flushSettings() {
     clearTimeout(saveTimer)
     const settings = currentSettings()
     const json = JSON.stringify(settings)
     if (!ready || json === savedJson) return
-    saveSettings(id, settings, keepalive).then(
+    saveSettings(id, settings).then(
       () => {
         savedJson = json
         if (migratingLegacy) clearLegacySettings()
@@ -259,7 +267,7 @@
       (e) => console.warn('Could not save settings', e),
     )
   }
-  onDestroy(() => flushSettings(true))
+  onDestroy(() => flushSettings())
 
   function applySettings(s: SongSettings) {
     for (const stem of player.stems) {
@@ -405,15 +413,28 @@
     const s = Math.floor(t % 60)
     return `${m}:${s.toString().padStart(2, '0')}`
   }
+
+  async function downloadZip() {
+    if (!song) return
+    try {
+      const blob = await exportStemsZip(song)
+      const uri = await writeCacheFile(`${song.title}.zip`, await blob.arrayBuffer())
+      await Share.share({ url: uri, title: `${song.title} stems` })
+    } catch (e) {
+      error = `Could not export stems: ${(e as Error).message}`
+    }
+  }
 </script>
 
 <header>
-  <a href="#/" class="back" aria-label="Back to library">←</a>
+  <a href="#/" class="back" aria-label="Back to library">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2Z" /></svg>
+  </a>
   <h1>{song?.title ?? ''}</h1>
   {#if song?.status === 'done'}
-    <a class="download" href={stemsZipUrl(id)} download title="Download all stems (FLAC, zip)" aria-label="Download all stems">
+    <button class="download" onclick={downloadZip} title="Share all stems (zip)" aria-label="Share all stems">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3V3zM5 18h14v2H5z" /></svg>
-    </a>
+    </button>
   {/if}
 </header>
 
@@ -598,10 +619,17 @@
     fill: currentColor;
   }
   .back {
-    font-size: 1.5rem;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
     text-decoration: none;
     color: inherit;
-    padding: 4px 8px;
+  }
+  .back svg {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
   }
   .transport {
     background: var(--surface);

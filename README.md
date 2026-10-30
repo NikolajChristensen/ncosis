@@ -1,81 +1,79 @@
 # ncosis
 
 Split songs into **lead guitar**, **rhythm guitar** and **backing** (everything else) and play along with any of
-them muted. Separation is done by [MVSEP](https://mvsep.com)'s "Lead/Rhythm Guitar" model through its API; the
-server only uploads songs, stores the stems and serves the app. The phone app is a PWA with a stem mixer, A-B
-loops and transpose.
+them muted. Separation is done by [MVSEP](https://mvsep.com)'s "Lead/Rhythm Guitar" model, called directly from
+the app. There's no server — ncosis is a Svelte web app wrapped as a native Android app with
+[Capacitor](https://capacitorjs.com), with a stem mixer, A-B loops, transpose and tap tempo.
 
 ```
-backend/   FastAPI + SQLite + a worker thread that sends queued songs to MVSEP
-web/       Svelte + Vite PWA: library, mixer, loops, transpose
-deploy/    LXC bootstrap, push-to-deploy update script, systemd unit, certificate script
+web/src/     Svelte + TypeScript app: library, mixer, loops, transpose; storage via Capacitor plugins
+web/android/ Capacitor's native Android project (Gradle) — part of the repo, not just build output
+tools/       tools/setup-signing.sh: one-time release-signing key setup
 ```
 
-Songs are uploaded to MVSEP's servers for separation. A free MVSEP account allows 50 separations a day.
+Songs are uploaded to MVSEP's servers for separation. A free MVSEP account allows 50 separations a day; each
+person who installs the app needs their own MVSEP account/token (entered in-app, under Settings).
+
+## Installing
+
+Download `ncosis.apk` from the repo's [latest release](../../releases/tag/latest) and sideload it (Android will
+ask you to allow installs from whatever app you downloaded it with — allow that once). Open the app, go to
+**Settings**, and paste in your own MVSEP API token (get one at mvsep.com).
 
 ## Development
 
 ```sh
-deploy/make-certs.sh backend/data/tls <laptop-ip>         # once
-echo '<your MVSEP API token>' > backend/data/mvsep_token  # never commit this; data/ is git-ignored
-
-cd backend
-python3 -m venv .venv && .venv/bin/pip install -e .
-.venv/bin/uvicorn ncosis.main:app --host 0.0.0.0 --port 8000 \
-    --ssl-keyfile data/tls/server.key --ssl-certfile data/tls/server.crt
-
-cd web && npm install && npm run dev    # proxies /api to the HTTPS backend on :8000
+cd web && npm install
+npm run check && npm run build && npx cap sync android
 ```
 
-## Deployment (Debian 13 LXC)
+- `npm run dev` runs the UI in a desktop browser for quick iteration, but MVSEP calls will fail there (CORS —
+  the whole reason the app talks to MVSEP through Capacitor's native HTTP instead) and storage won't persist
+  between runs, so anything beyond pure UI work needs a real device.
+- A phone connected over USB with Developer options → USB debugging enabled: `adb devices` should list it
+  (`authorized`, not `unauthorized` — accept the prompt on the phone first).
+- Debug build (unsigned, fine for testing): `cd web/android && ./gradlew assembleDebug`, then
+  `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+- Release build (signed, needed so repeat installs update in place instead of requiring an uninstall first — see
+  "Signing" below): `./gradlew assembleRelease` with `KEYSTORE_FILE`/`KEYSTORE_PASSWORD` env vars set, or a
+  `keystore.properties` file present.
+- `JAVA_HOME` needs to point at a JDK Gradle actually supports (JDK 21 here) — not necessarily whatever `java`
+  resolves to by default.
 
-A container with 2 cores, 1 GB RAM and 16 GB disk is plenty; separation doesn't run locally.
+## Signing
 
-**Once:**
+Builds need a stable signing key so an update installs over the previous version instead of forcing an
+uninstall. Run once:
 
 ```sh
-# 1. Packages, service user and push target with its deploy hook
-ssh root@<lxc-ip> 'bash -s' < deploy/bootstrap.sh
-
-# 2. Data, CA (so phones that trust it keep working) and the MVSEP token
-rsync -a backend/data/songs backend/data/ncosis.db root@<lxc-ip>:/var/lib/ncosis/
-ssh root@<lxc-ip> mkdir -p /var/lib/ncosis/tls
-scp backend/data/tls/ca.crt backend/data/tls/ca.key root@<lxc-ip>:/var/lib/ncosis/tls/
-scp backend/data/mvsep_token root@<lxc-ip>:/var/lib/ncosis/
-
-# 3. Deploy
-git remote add lxc root@<lxc-ip>:/srv/ncosis.git
-git push lxc master
+./tools/setup-signing.sh
 ```
 
-**Every update:** `git push lxc master`. The hook checks out the new version, reinstalls dependencies only when
-they changed, rebuilds the app, restarts the service and prints ✅ or ❌. Phones pick up the new version on their
-next load. Roll back with `git push -f lxc <commit>:master`.
+This generates `web/android/release.jks` (git-ignored — back it up somewhere; losing it means no future build
+can ever again install as an update over an existing one) and pushes `KEYSTORE_BASE64`/`KEYSTORE_PASSWORD` to
+this repo's GitHub secrets, which `.github/workflows/build.yml` uses to sign every build automatically.
 
-The app runs at `https://<lxc-ip>/`. Logs: `journalctl -u ncosis -f`.
+## Distribution
 
-## Music library (optional)
+```sh
+git push origin master   # triggers .github/workflows/build.yml
+```
 
-With `NCOSIS_LIBRARY_DIR` pointing at a folder of music, the app gets an "Add from library" screen to search
-it and add songs without uploading them. On the LXC the service uses `/mnt/music`: mount the share read-only on
-the Proxmox host and pass it in with `pct set <ctid> -mp0 <host-path>,mp=/mnt/music,ro=1`.
+On every push to `master`, GitHub Actions builds a signed release APK and publishes it to the `latest` release,
+replacing the previous asset — so there's always one stable link to re-download from (the repo is public, so no
+GitHub login is needed to download it). Re-run the workflow manually (`workflow_dispatch`) if you need a rebuild
+without a code change.
 
-## HTTPS without a domain
+## Migrating from the old server-based version
 
-Transpose, installing the app, keeping the screen on and auto-updates need HTTPS. `deploy/make-certs.sh <dir> <ip>`
-creates a private CA and a server certificate. The CA is name-constrained to private IPs and `localhost`, so it
-can't vouch for real websites. Re-running keeps the CA and issues a new server certificate.
-
-The app offers the CA at `/ca.crt`. Install it on Android once: Settings → Security → Encryption & credentials →
-Install a certificate → CA certificate.
-
-## Configuration
-
-Environment variables (see `backend/ncosis/config.py`; on the LXC put them in `/etc/ncosis.env`):
-`NCOSIS_DATA_DIR`, `NCOSIS_WEB_DIST`, `NCOSIS_MVSEP_TOKEN` (instead of the `mvsep_token` file),
-`NCOSIS_LIBRARY_DIR`, `NCOSIS_STEM_BITRATE` (default `160k`), `NCOSIS_MAX_UPLOAD_MB` (default `200`), `NCOSIS_CA_CERT`.
+Earlier versions of ncosis ran a FastAPI backend on an LXC; that's gone. If you're restoring songs from that era
+onto a device for the first time, you'd need `backend/tools/export_backup.py` from git history (see AGENTS.md)
+to build a backup zip from a copy of the old server's data, then import it in-app via Settings → "Import
+backup". This was a one-time migration and isn't part of the normal workflow.
 
 ## Ideas for later
 
 - Separate vocals/drums/bass for the backing track, via another MVSEP model.
-- Keep lossless stems for the "download all stems" zip (currently converted from the Opus stems).
+- An Android foreground service so separation can continue while the app is fully backgrounded.
+- A "manage storage" screen to delete old songs' stems explicitly (there's no automatic eviction — on-device
+  stems are the only copy of a song, so nothing is deleted silently).
