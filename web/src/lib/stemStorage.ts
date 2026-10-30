@@ -35,16 +35,16 @@ const stemsDir = (id: string) => `${songDir(id)}/stems`
 const sourcePath = (id: string, filename: string) => `${songDir(id)}/${filename}`
 const stemPath = (id: string, stem: string, ext: string) => `${stemsDir(id)}/${stem}.${ext}`
 
-async function write(path: string, bytes: ArrayBuffer): Promise<void> {
+async function write(path: string, bytes: ArrayBuffer, directory: Directory = Directory.Data): Promise<void> {
   const data = new Uint8Array(bytes)
   if (data.length === 0) {
-    await Filesystem.writeFile({ path, directory: Directory.Data, data: '', recursive: true })
+    await Filesystem.writeFile({ path, directory, data: '', recursive: true })
     return
   }
   for (let offset = 0; offset < data.length; offset += FILE_CHUNK) {
     const chunk = uint8ToBase64(data.subarray(offset, offset + FILE_CHUNK))
-    if (offset === 0) await Filesystem.writeFile({ path, directory: Directory.Data, data: chunk, recursive: true })
-    else await Filesystem.appendFile({ path, directory: Directory.Data, data: chunk })
+    if (offset === 0) await Filesystem.writeFile({ path, directory, data: chunk, recursive: true })
+    else await Filesystem.appendFile({ path, directory, data: chunk })
   }
 }
 
@@ -90,4 +90,11 @@ export async function readStem(id: string, stem: string, ext: string): Promise<A
 
 export async function deleteSong(id: string): Promise<void> {
   await Filesystem.rmdir({ path: songDir(id), directory: Directory.Data, recursive: true }).catch(() => {})
+}
+
+/** Write an arbitrary file to the cache dir (e.g. for sharing), chunked like stem writes. Returns its native URI. */
+export async function writeCacheFile(filename: string, bytes: ArrayBuffer): Promise<string> {
+  await write(filename, bytes, Directory.Cache)
+  const { uri } = await Filesystem.getUri({ path: filename, directory: Directory.Cache })
+  return uri
 }

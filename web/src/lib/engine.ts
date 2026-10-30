@@ -217,7 +217,7 @@ export class StemPlayer {
       if (!this.ctx.audioWorklet) throw new Error('needs the app to be opened over HTTPS')
       this.stretchReady ??= (async () => {
         const node = await SignalsmithStretch(this.ctx, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] })
-        node.connect(this.ctx.destination)
+        node.connect(this.masterGain)
         this.stretchLatency = await node.latency()
         this.stretch = node
       })()
@@ -230,7 +230,7 @@ export class StemPlayer {
     if (Math.abs(st) <= 1e-6) {
       if (this.routedThroughStretch) {
         this.bus.disconnect()
-        this.bus.connect(this.ctx.destination)
+        this.bus.connect(this.masterGain)
         stretch.stop()
         this.routedThroughStretch = false
       }

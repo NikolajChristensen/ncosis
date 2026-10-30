@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { Filesystem, Directory } from '@capacitor/filesystem'
   import { Share } from '@capacitor/share'
   import { exportStemsZip, getSong, readStemBytes, saveSettings, type Song, type SongSettings } from './api'
   import { MIN_LOOP, StemPlayer, type Loop, type Stem } from './engine'
-  import { uint8ToBase64 } from './stemStorage'
+  import { writeCacheFile } from './stemStorage'
   import Waveform from './Waveform.svelte'
 
   let { id }: { id: string } = $props()
@@ -415,8 +414,7 @@
     if (!song) return
     try {
       const blob = await exportStemsZip(song)
-      const data = uint8ToBase64(new Uint8Array(await blob.arrayBuffer()))
-      const { uri } = await Filesystem.writeFile({ path: `${song.title}.zip`, directory: Directory.Cache, data })
+      const uri = await writeCacheFile(`${song.title}.zip`, await blob.arrayBuffer())
       await Share.share({ url: uri, title: `${song.title} stems` })
     } catch (e) {
       error = `Could not export stems: ${(e as Error).message}`
