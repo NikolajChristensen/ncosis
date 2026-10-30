@@ -12,22 +12,25 @@
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { FileTransfer } from '@capacitor/file-transfer'
 
-const FILE_CHUNK = 2 * 1024 * 1024 // bound per bridge-call payload size
-const STRING_CHUNK = 32 * 1024 // avoid a huge arg list to String.fromCharCode at once
+// android:largeHeap gives real headroom now, so chunks can be bigger (fewer, cheaper bridge
+// round-trips) while staying far below the "whole file in one call" territory that OOM'd.
+const FILE_CHUNK = 8 * 1024 * 1024
 
-export function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += STRING_CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + STRING_CHUNK))
-  }
-  return btoa(binary)
+// Plain JS loops (String.fromCharCode per byte, atob()+charCodeAt per byte) are what made
+// loading/exporting feel like it took forever — base64 via Blob/FileReader and fetch("data:")
+// instead uses the WebView's native codec, which is far faster for multi-MB chunks.
+async function uint8ToBase64(bytes: Uint8Array): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve((reader.result as string).slice((reader.result as string).indexOf(',') + 1))
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'))
+    reader.readAsDataURL(new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer]))
+  })
 }
 
-function base64ToUint8(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
+async function base64ToUint8(base64: string): Promise<Uint8Array> {
+  const res = await fetch(`data:application/octet-stream;base64,${base64}`)
+  return new Uint8Array(await res.arrayBuffer())
 }
 
 const songDir = (id: string) => `songs/${id}`
@@ -42,7 +45,7 @@ async function write(path: string, bytes: ArrayBuffer, directory: Directory = Di
     return
   }
   for (let offset = 0; offset < data.length; offset += FILE_CHUNK) {
-    const chunk = uint8ToBase64(data.subarray(offset, offset + FILE_CHUNK))
+    const chunk = await uint8ToBase64(data.subarray(offset, offset + FILE_CHUNK))
     if (offset === 0) await Filesystem.writeFile({ path, directory, data: chunk, recursive: true })
     else await Filesystem.appendFile({ path, directory, data: chunk })
   }
@@ -59,7 +62,7 @@ async function read(path: string): Promise<ArrayBuffer> {
       length: Math.min(FILE_CHUNK, size - offset),
     })
     if (typeof data !== 'string') throw new Error(`Unexpected Filesystem.readFile result for ${path}`)
-    result.set(base64ToUint8(data), offset)
+    result.set(await base64ToUint8(data), offset)
   }
   return result.buffer
 }
