@@ -59,8 +59,7 @@ async function process(song: Song, resumeJobHash?: string) {
     const downloadUrls = await mvsep.poll(hash, (msg) => songStore.updateSong(song.id, { notes: msg }))
     const stems: string[] = []
     for (const [stem, url] of Object.entries(downloadUrls)) {
-      const bytes = await mvsep.downloadStem(url)
-      await stemStorage.writeStem(song.id, stem, 'flac', bytes)
+      await stemStorage.downloadStem(song.id, stem, 'flac', url)
       stems.push(stem)
     }
 

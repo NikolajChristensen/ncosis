@@ -1,9 +1,9 @@
 name: Build dev APK
 
-# Temporary — builds an unsigned debug APK on this branch so it can be sideloaded straight from
-# a phone browser for testing, with no cable or signing setup. Delete once the migration is
-# validated and replaced by the real build.yml from Phase 10 of
-# /home/musicmad/.claude/plans/validated-dreaming-sutherland.md.
+# Temporary — builds a release APK on this branch, signed with the fixed key from
+# tools/setup-signing.sh so repeat installs update in place instead of needing an uninstall
+# first. Delete once the migration is validated and replaced by the real build.yml from
+# Phase 10 of /home/musicmad/.claude/plans/validated-dreaming-sutherland.md.
 on:
   push:
     branches: [capacitor-migration]
@@ -27,6 +27,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Add the KEYSTORE_BASE64 and KEYSTORE_PASSWORD secrets first (run tools/setup-signing.sh)."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > web/android/release.jks
+
       - name: Build web bundle and sync into the Android project
         working-directory: web
         run: |
@@ -34,17 +44,22 @@ jobs:
           npm run build
           npx cap sync android
 
-      - name: Build debug APK
+      - name: Build APK
         working-directory: web/android
-        run: ./gradlew assembleDebug --stacktrace
+        env:
+          KEYSTORE_FILE: release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 0.1.${{ github.run_number }}
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Publish on the "dev-build" prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp web/android/app/build/outputs/apk/debug/app-debug.apk ncosis-dev.apk
+          cp web/android/app/build/outputs/apk/release/app-release.apk ncosis-dev.apk
           gh release view dev-build >/dev/null 2>&1 || \
-            gh release create dev-build --prerelease --title "Dev build (debug, unsigned)" \
-              --notes "Throwaway debug build for testing the backend-removal migration." --target "$GITHUB_SHA"
+            gh release create dev-build --prerelease --title "Dev build (signed)" \
+              --notes "Signed build for testing the backend-removal migration." --target "$GITHUB_SHA"
           gh release upload dev-build ncosis-dev.apk --clobber
           gh release edit dev-build --notes "Build ${{ github.run_number }} from ${GITHUB_SHA::7}."

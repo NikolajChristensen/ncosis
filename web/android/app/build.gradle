@@ -1,5 +1,15 @@
 apply plugin: 'com.android.application'
 
+// A fixed signing key so every build is recognized as the same app and updates install in
+// place, instead of Gradle's default debug key (regenerated per machine/CI run, which makes
+// Android treat each build as a different app and refuse to update over the last install).
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+def signingValue = { env, prop -> System.getenv(env) ?: keystoreProperties.getProperty(prop) }
+
 android {
     namespace = "io.github.nikolajchristensen.ncosis"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +17,10 @@ android {
         applicationId "io.github.nikolajchristensen.ncosis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        def verCode = (System.getenv("VERSION_CODE") ?: "1").toInteger()
+        def verName = System.getenv("VERSION_NAME") ?: "1.0"
+        versionCode verCode
+        versionName verName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +28,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            def storeFilePath = signingValue("KEYSTORE_FILE", "storeFile")
+            if (storeFilePath != null) {
+                storeFile rootProject.file(storeFilePath)
+                storePassword signingValue("KEYSTORE_PASSWORD", "storePassword")
+                keyAlias signingValue("KEY_ALIAS", "keyAlias") ?: "ncosis"
+                keyPassword signingValue("KEY_PASSWORD", "keyPassword") ?: signingValue("KEYSTORE_PASSWORD", "storePassword")
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

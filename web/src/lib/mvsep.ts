@@ -69,9 +69,3 @@ function mapOutputs(files: { type?: string; name?: string; url: string }[]): Rec
   }
   return result
 }
-
-export async function downloadStem(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url)
-  if (!res.ok) throw new MvsepError(`could not download stem (${res.status})`)
-  return res.arrayBuffer()
-}
