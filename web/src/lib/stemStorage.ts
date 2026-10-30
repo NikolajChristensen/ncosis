@@ -1,24 +1,25 @@
 // On-device storage for each song's source file and separated stems, via Capacitor Filesystem.
 // Replaces the server's SONGS_DIR. Layout: songs/<id>/source.<ext>, songs/<id>/stems/<stem>.<ext>.
 //
-// Filesystem.writeFile/readFile move the whole file as one base64 string in a single JSON
-// message across the native bridge. For a multi-ten-MB stem that allocation alone can exceed
-// the WebView process's heap limit (confirmed on-device: a ~75MB base64 string blew a ~256MB
-// heap in org.json.JSONStringer while writing one stem in a single call, crashing the app with
-// OutOfMemoryError). Stem downloads go through @capacitor/file-transfer instead, which streams
-// straight from the network to disk with no JS-side buffering at all; everything else is
-// chunked so no single bridge call ever carries more than a few MB.
+// Writes go through Filesystem.writeFile/appendFile, which move data as base64 strings in JSON
+// messages across the native bridge — for a multi-ten-MB stem, one giant string in a single call
+// can exceed the WebView process's heap (confirmed on-device: a ~75MB base64 string blew a
+// ~256MB heap in org.json.JSONStringer, crashing the app with OutOfMemoryError), so writes are
+// chunked and use the WebView's native base64 codec (Blob/FileReader) instead of JS loops.
+// Reads don't need any of that: Capacitor.convertFileSrc() + fetch() lets the WebView's own
+// native file loader stream the file directly (confirmed via native-bridge.js: requests to the
+// app's own server origin, which these are, bypass the CapacitorHttp JSON-bridge path entirely)
+// — no base64, no chunking, no JS-side buffering at all. Stem downloads from MVSEP similarly
+// skip JS entirely via @capacitor/file-transfer's native-to-disk downloadFile().
 
+import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { FileTransfer } from '@capacitor/file-transfer'
 
-// android:largeHeap gives real headroom now, so chunks can be bigger (fewer, cheaper bridge
-// round-trips) while staying far below the "whole file in one call" territory that OOM'd.
+// android:largeHeap gives real headroom now, so write chunks can be bigger (fewer, cheaper
+// bridge round-trips) while staying far below the "whole file in one call" territory that OOM'd.
 const FILE_CHUNK = 8 * 1024 * 1024
 
-// Plain JS loops (String.fromCharCode per byte, atob()+charCodeAt per byte) are what made
-// loading/exporting feel like it took forever — base64 via Blob/FileReader and fetch("data:")
-// instead uses the WebView's native codec, which is far faster for multi-MB chunks.
 async function uint8ToBase64(bytes: Uint8Array): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -26,11 +27,6 @@ async function uint8ToBase64(bytes: Uint8Array): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'))
     reader.readAsDataURL(new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer]))
   })
-}
-
-async function base64ToUint8(base64: string): Promise<Uint8Array> {
-  const res = await fetch(`data:application/octet-stream;base64,${base64}`)
-  return new Uint8Array(await res.arrayBuffer())
 }
 
 const songDir = (id: string) => `songs/${id}`
@@ -52,19 +48,10 @@ async function write(path: string, bytes: ArrayBuffer, directory: Directory = Di
 }
 
 async function read(path: string): Promise<ArrayBuffer> {
-  const { size } = await Filesystem.stat({ path, directory: Directory.Data })
-  const result = new Uint8Array(size)
-  for (let offset = 0; offset < size; offset += FILE_CHUNK) {
-    const { data } = await Filesystem.readFile({
-      path,
-      directory: Directory.Data,
-      offset,
-      length: Math.min(FILE_CHUNK, size - offset),
-    })
-    if (typeof data !== 'string') throw new Error(`Unexpected Filesystem.readFile result for ${path}`)
-    result.set(await base64ToUint8(data), offset)
-  }
-  return result.buffer
+  const { uri } = await Filesystem.getUri({ path, directory: Directory.Data })
+  const res = await fetch(Capacitor.convertFileSrc(uri))
+  if (!res.ok) throw new Error(`Could not read ${path} (${res.status})`)
+  return res.arrayBuffer()
 }
 
 export async function writeSource(id: string, filename: string, bytes: ArrayBuffer): Promise<void> {

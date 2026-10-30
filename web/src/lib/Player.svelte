@@ -72,10 +72,14 @@
     try {
       song = await getSong(id)
       const stemNames = [...song.stems].sort((a, b) => STEM_ORDER.indexOf(a) - STEM_ORDER.indexOf(b))
-      // One stem at a time, not in parallel — keeps peak memory to roughly one stem's worth.
-      for (const name of stemNames) {
-        const bytes = await readStemBytes(song, name)
-        await player.loadStem(name, bytes)
+      // Decode one stem at a time (keeps peak decoded-audio memory to one stem's worth), but
+      // prefetch the next stem's compressed bytes while the current one decodes — overlaps I/O
+      // with CPU decode time instead of doing them strictly back-to-back.
+      let nextBytes = readStemBytes(song, stemNames[0])
+      for (let i = 0; i < stemNames.length; i++) {
+        const bytes = await nextBytes
+        if (i + 1 < stemNames.length) nextBytes = readStemBytes(song, stemNames[i + 1])
+        await player.loadStem(stemNames[i], bytes)
         loaded++
       }
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
