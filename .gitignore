@@ -1,9 +1,3 @@
 node_modules/
 web/dist/
-web/dev-dist/
-backend/.venv/
-backend/data/
-__pycache__/
-*.egg-info/
-VERSION
 .vite/
