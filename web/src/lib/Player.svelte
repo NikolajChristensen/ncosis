@@ -73,8 +73,12 @@
     try {
       song = await getSong(id)
       const stemNames = [...song.stems].sort((a, b) => STEM_ORDER.indexOf(a) - STEM_ORDER.indexOf(b))
-      const stems = await Promise.all(stemNames.map(async (name) => ({ name, bytes: await readStemBytes(song!, name) })))
-      await player.load(stems, (n) => (loaded = n))
+      // One stem at a time, not in parallel — keeps peak memory to roughly one stem's worth.
+      for (const name of stemNames) {
+        const bytes = await readStemBytes(song, name)
+        await player.loadStem(name, bytes)
+        loaded++
+      }
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
       const legacy = song.settings ? null : legacySettings()
       applySettings(song.settings ?? legacy ?? {})

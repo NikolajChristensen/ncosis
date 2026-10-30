@@ -12,7 +12,7 @@
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { FileTransfer } from '@capacitor/file-transfer'
 
-const FILE_CHUNK = 4 * 1024 * 1024 // bound per bridge-call payload size
+const FILE_CHUNK = 2 * 1024 * 1024 // bound per bridge-call payload size
 const STRING_CHUNK = 32 * 1024 // avoid a huge arg list to String.fromCharCode at once
 
 export function uint8ToBase64(bytes: Uint8Array): string {

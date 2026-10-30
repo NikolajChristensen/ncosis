@@ -76,24 +76,23 @@ export class StemPlayer {
     this.masterGain.connect(this.ctx.destination)
   }
 
-  async load(stems: { name: string; bytes: ArrayBuffer }[], onProgress: (done: number) => void) {
-    let done = 0
-    const loaded = await Promise.all(
-      stems.map(async ({ name, bytes }) => {
-        let buffer: AudioBuffer
-        try {
-          buffer = await this.ctx.decodeAudioData(bytes)
-        } catch (e) {
-          throw new Error(`Could not decode ${name} stem (${(e as Error).message})`)
-        }
-        onProgress(++done)
-        const gain = this.ctx.createGain()
-        gain.connect(this.bus)
-        return { name, buffer, gain, volume: 1, muted: false, solo: false, peaks: computePeaks(buffer) }
-      }),
-    )
-    this.stems.push(...loaded)
-    this.duration = Math.max(...loaded.map((s) => s.buffer.duration))
+  /**
+   * Decode and add one stem. Loaded one at a time (not in parallel) by the caller so only one
+   * stem's raw bytes are ever in memory at once — Capacitor's WebView runs in the app's own
+   * Android heap, much smaller than a normal mobile browser tab gets, and holding all stems'
+   * bytes/decoded buffers at once risks an OOM on longer songs.
+   */
+  async loadStem(name: string, bytes: ArrayBuffer): Promise<void> {
+    let buffer: AudioBuffer
+    try {
+      buffer = await this.ctx.decodeAudioData(bytes)
+    } catch (e) {
+      throw new Error(`Could not decode ${name} stem (${(e as Error).message})`)
+    }
+    const gain = this.ctx.createGain()
+    gain.connect(this.bus)
+    this.stems.push({ name, buffer, gain, volume: 1, muted: false, solo: false, peaks: computePeaks(buffer) })
+    this.duration = Math.max(this.duration, buffer.duration)
   }
 
   get position(): number {
