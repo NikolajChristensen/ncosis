@@ -57,9 +57,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp web/android/app/build/outputs/apk/release/app-release.apk ncosis-dev.apk
+          apk="ncosis-dev-${{ github.run_number }}.apk"
+          cp web/android/app/build/outputs/apk/release/app-release.apk "$apk"
           gh release view dev-build >/dev/null 2>&1 || \
             gh release create dev-build --prerelease --title "Dev build (signed)" \
               --notes "Signed build for testing the backend-removal migration." --target "$GITHUB_SHA"
-          gh release upload dev-build ncosis-dev.apk --clobber
+          # Keep only the latest APK attached, but name it with the build number so it's
+          # obvious which build is actually installed.
+          for old in $(gh release view dev-build --json assets --jq '.assets[].name'); do
+            gh release delete-asset dev-build "$old" --yes
+          done
+          gh release upload dev-build "$apk"
           gh release edit dev-build --notes "Build ${{ github.run_number }} from ${GITHUB_SHA::7}."
