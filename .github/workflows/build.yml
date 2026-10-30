@@ -1,12 +1,10 @@
-name: Build dev APK
+name: Build APK
 
-# Temporary — builds a release APK on this branch, signed with the fixed key from
-# tools/setup-signing.sh so repeat installs update in place instead of needing an uninstall
-# first. Delete once the migration is validated and replaced by the real build.yml from
-# Phase 10 of /home/musicmad/.claude/plans/validated-dreaming-sutherland.md.
+# Builds a signed release APK and publishes it on the "latest" release, so the phone can always
+# download it from the same place. Re-pushing to master updates that same release in place.
 on:
   push:
-    branches: [capacitor-migration]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -53,19 +51,17 @@ jobs:
           VERSION_NAME: 0.1.${{ github.run_number }}
         run: ./gradlew assembleRelease --stacktrace
 
-      - name: Publish on the "dev-build" prerelease
+      - name: Publish on the "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          apk="ncosis-dev-${{ github.run_number }}.apk"
-          cp web/android/app/build/outputs/apk/release/app-release.apk "$apk"
-          gh release view dev-build >/dev/null 2>&1 || \
-            gh release create dev-build --prerelease --title "Dev build (signed)" \
-              --notes "Signed build for testing the backend-removal migration." --target "$GITHUB_SHA"
-          # Keep only the latest APK attached, but name it with the build number so it's
-          # obvious which build is actually installed.
-          for old in $(gh release view dev-build --json assets --jq '.assets[].name'); do
-            gh release delete-asset dev-build "$old" --yes
-          done
-          gh release upload dev-build "$apk"
-          gh release edit dev-build --notes "Build ${{ github.run_number }} from ${GITHUB_SHA::7}."
+          cp web/android/app/build/outputs/apk/release/app-release.apk ncosis.apk
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "Latest build" --notes "Built automatically from master." --target "$GITHUB_SHA"
+          gh release upload latest ncosis.apk --clobber
+          gh release edit latest --notes "Build ${{ github.run_number }} from ${GITHUB_SHA::7}."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ncosis-apk
+          path: ncosis.apk
