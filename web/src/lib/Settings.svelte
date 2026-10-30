@@ -41,7 +41,9 @@
 </script>
 
 <header>
-  <a href="#/" class="back" aria-label="Back to your songs">←</a>
+  <a href="#/" class="back" aria-label="Back to your songs">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2Z" /></svg>
+  </a>
   <h1>Settings</h1>
 </header>
 
@@ -77,10 +79,17 @@
     margin: 0;
   }
   .back {
-    font-size: 1.5rem;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
     text-decoration: none;
     color: inherit;
-    padding: 4px 8px;
+  }
+  .back svg {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
   }
   section {
     background: var(--surface);
