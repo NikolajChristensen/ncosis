@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { deleteSong, getConfig, listSongs, retrySong, uploadSong, type ServerConfig, type Song } from './api'
+  import { deleteSong, listSongs, retrySong, uploadSong, type Song } from './api'
+  import { hasMvsepToken } from './settings'
 
   let songs = $state<Song[]>([])
   let error = $state('') // from an action like uploading; stays until the next action
@@ -8,8 +9,8 @@
   let uploading = $state('')
   let now = $state(Date.now() / 1000)
   let timer = 0
-  let serverConfig = $state<ServerConfig | null>(null)
-  getConfig().then((c) => (serverConfig = c), () => {})
+  let tokenSet = $state(true)
+  hasMvsepToken().then((v) => (tokenSet = v))
 
   // Stems the current server produces; older songs without them can be reprocessed.
   const CURRENT_STEMS = ['lead', 'rhythm', 'backing']
@@ -116,7 +117,7 @@
 
 <header>
   <h1>ncosis</h1>
-  {#if serverConfig?.library}<a class="from-library" href="#/add">From library</a>{/if}
+  <a class="settings-link" href="#/settings" aria-label="Settings">⚙</a>
   <label class="upload" class:busy={uploading}>
     {uploading ? 'Uploading…' : '+ Add song'}
     <input type="file" accept="audio/*,.flac,.mp3,.wav,.m4a,.ogg,.opus" multiple onchange={pick} disabled={!!uploading} />
@@ -133,8 +134,8 @@
   </p>
 {/if}
 
-{#if serverConfig && !serverConfig.mvsepConfigured}
-  <p class="error">The server has no MVSEP API token, so new songs can't be separated.</p>
+{#if !tokenSet}
+  <p class="error">No MVSEP API token set. <a href="#/settings">Add one</a> to separate new songs.</p>
 {/if}
 
 <ul>
@@ -157,8 +158,6 @@
   {/each}
 </ul>
 
-{#if serverConfig}<footer>ncosis {serverConfig.version}</footer>{/if}
-
 <style>
   .dropzone {
     position: fixed;
@@ -174,12 +173,6 @@
     font-weight: 700;
     pointer-events: none;
   }
-  footer {
-    margin-top: 32px;
-    text-align: center;
-    font-size: 0.75rem;
-    color: var(--muted-text);
-  }
   header {
     display: flex;
     align-items: center;
@@ -190,15 +183,12 @@
     margin: 0;
     font-size: 1.4rem;
   }
-  .from-library {
+  .settings-link {
     margin-left: auto;
-    margin-right: 8px;
-    padding: 9px 14px;
-    border-radius: 999px;
-    border: 1px solid var(--muted);
+    margin-right: 12px;
+    font-size: 1.3rem;
     color: inherit;
     text-decoration: none;
-    font-weight: 600;
   }
   .upload {
     background: var(--accent);

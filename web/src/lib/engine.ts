@@ -4,7 +4,6 @@
 // transpose. At normal speed and pitch the shifter is bypassed.
 
 import SignalsmithStretch from 'signalsmith-stretch'
-import { fetchStem } from './stemCache'
 
 export interface Stem {
   name: string
@@ -77,21 +76,24 @@ export class StemPlayer {
     this.masterGain.connect(this.ctx.destination)
   }
 
-  async load(urls: { name: string; url: string }[], onProgress: (done: number) => void) {
+  async load(stems: { name: string; bytes: ArrayBuffer }[], onProgress: (done: number) => void) {
     let done = 0
-    const stems = await Promise.all(
-      urls.map(async ({ name, url }) => {
-        const res = await fetchStem(url)
-        if (!res.ok) throw new Error(`Could not load ${name} stem (${res.status})`)
-        const buffer = await this.ctx.decodeAudioData(await res.arrayBuffer())
+    const loaded = await Promise.all(
+      stems.map(async ({ name, bytes }) => {
+        let buffer: AudioBuffer
+        try {
+          buffer = await this.ctx.decodeAudioData(bytes)
+        } catch (e) {
+          throw new Error(`Could not decode ${name} stem (${(e as Error).message})`)
+        }
         onProgress(++done)
         const gain = this.ctx.createGain()
         gain.connect(this.bus)
         return { name, buffer, gain, volume: 1, muted: false, solo: false, peaks: computePeaks(buffer) }
       }),
     )
-    this.stems.push(...stems)
-    this.duration = Math.max(...stems.map((s) => s.buffer.duration))
+    this.stems.push(...loaded)
+    this.duration = Math.max(...loaded.map((s) => s.buffer.duration))
   }
 
   get position(): number {

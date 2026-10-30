@@ -1,10 +1,9 @@
 import { mount } from 'svelte'
-import { registerSW } from 'virtual:pwa-register'
 import './app.css'
 import App from './App.svelte'
+import * as separation from './lib/separation'
 
-// Reload once when a new version has been deployed, instead of showing the cached one.
-registerSW({ immediate: true })
+separation.start()
 
 const app = mount(App, {
   target: document.getElementById('app')!,
