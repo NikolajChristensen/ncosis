@@ -439,49 +439,55 @@
     </div>
     <div class="pitch">
       <span class="label">Transpose</span>
-      <button onclick={() => transpose(-1)} disabled={semitones <= -MAX_SEMITONES} aria-label="Transpose down">−</button>
-      <button
-        class="value"
-        class:on={semitones !== 0}
-        onclick={toggleTranspose}
-        title={semitones !== 0 ? 'Tap for 0 st' : practiceSemitones ? `Tap for ${fmtSemitones(practiceSemitones)}` : ''}
-      >
-        {fmtSemitones(semitones)}
-        {#if semitones === 0 && practiceSemitones}<span class="alt">↺ {fmtSemitones(practiceSemitones)}</span>{/if}
-      </button>
-      <button onclick={() => transpose(1)} disabled={semitones >= MAX_SEMITONES} aria-label="Transpose up">+</button>
+      <div class="controls">
+        <button onclick={() => transpose(-1)} disabled={semitones <= -MAX_SEMITONES} aria-label="Transpose down">−</button>
+        <button
+          class="value"
+          class:on={semitones !== 0}
+          onclick={toggleTranspose}
+          title={semitones !== 0 ? 'Tap for 0 st' : practiceSemitones ? `Tap for ${fmtSemitones(practiceSemitones)}` : ''}
+        >
+          {fmtSemitones(semitones)}
+          {#if semitones === 0 && practiceSemitones}<span class="alt">↺ {fmtSemitones(practiceSemitones)}</span>{/if}
+        </button>
+        <button onclick={() => transpose(1)} disabled={semitones >= MAX_SEMITONES} aria-label="Transpose up">+</button>
+      </div>
     </div>
     <div class="pitch">
       <span class="label">Speed</span>
-      <button onclick={() => changeSpeed(-5)} disabled={speed <= MIN_SPEED} aria-label="Slower">−</button>
-      <button
-        class="value"
-        class:on={speed !== 100}
-        onclick={toggleSpeed}
-        title={speed !== 100 ? 'Tap for 100%' : practiceSpeed ? `Tap for ${practiceSpeed}%` : ''}
-      >
-        {speed}%
-        {#if speed === 100 && practiceSpeed}<span class="alt">↺ {practiceSpeed}%</span>{/if}
-      </button>
-      <button onclick={() => changeSpeed(5)} disabled={speed >= MAX_SPEED} aria-label="Faster">+</button>
+      <div class="controls">
+        <button onclick={() => changeSpeed(-5)} disabled={speed <= MIN_SPEED} aria-label="Slower">−</button>
+        <button
+          class="value"
+          class:on={speed !== 100}
+          onclick={toggleSpeed}
+          title={speed !== 100 ? 'Tap for 100%' : practiceSpeed ? `Tap for ${practiceSpeed}%` : ''}
+        >
+          {speed}%
+          {#if speed === 100 && practiceSpeed}<span class="alt">↺ {practiceSpeed}%</span>{/if}
+        </button>
+        <button onclick={() => changeSpeed(5)} disabled={speed >= MAX_SPEED} aria-label="Faster">+</button>
+      </div>
     </div>
     <div class="pitch tempo">
       <span class="label">Tempo</span>
-      <span class="bpm" class:tapping={tapBpm !== null}>
-        {#if tapBpm !== null}
-          {Math.round(tapBpm)} BPM
-          <small>{tapCount < MIN_TAPS ? `keep tapping… ${tapCount}/${MIN_TAPS}` : 'pause to save'}</small>
-        {:else if effectiveBpm}
-          {effectiveBpm} BPM
-          {#if speed !== 100}<small>of {Math.round(baseBpm ?? 0)}</small>{/if}
-        {:else}
-          <small>unknown</small>
+      <div class="controls">
+        <span class="bpm" class:tapping={tapBpm !== null}>
+          {#if tapBpm !== null}
+            {Math.round(tapBpm)} BPM
+            <small>{tapCount < MIN_TAPS ? `keep tapping… ${tapCount}/${MIN_TAPS}` : 'pause to save'}</small>
+          {:else if effectiveBpm}
+            {effectiveBpm} BPM
+            {#if speed !== 100}<small>of {Math.round(baseBpm ?? 0)}</small>{/if}
+          {:else}
+            <small>unknown</small>
+          {/if}
+        </span>
+        <button class="tap" onclick={tap} aria-label="Tap tempo">Tap</button>
+        {#if bpmOverride !== null && tapBpm === null && song?.bpm}
+          <button class="auto" onclick={() => (bpmOverride = null)} title="Use the detected tempo">auto</button>
         {/if}
-      </span>
-      <button class="tap" onclick={tap} aria-label="Tap tempo">Tap</button>
-      {#if bpmOverride !== null && tapBpm === null && song?.bpm}
-        <button class="auto" onclick={() => (bpmOverride = null)} title="Use the detected tempo">auto</button>
-      {/if}
+      </div>
     </div>
     {#if pitchError}<p class="error pitch-error">{pitchError}</p>{/if}
   </section>
@@ -638,8 +644,8 @@
     border: none;
   }
   .pitch {
-    display: flex;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: 5.5em 1fr;
     align-items: center;
     gap: 8px;
     margin-top: 12px;
@@ -647,19 +653,23 @@
   .pitch .label {
     color: var(--muted-text);
     font-size: 0.85rem;
-    margin-right: 4px;
-    min-width: 5.5em;
     text-align: right;
+  }
+  .pitch .controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
   }
   .pitch button {
     height: 40px;
     min-width: 44px;
     border-radius: 8px;
-    font-size: 1.1rem;
+    font-size: 1rem;
   }
   .pitch .value {
     min-width: 72px;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     font-variant-numeric: tabular-nums;
   }
   .pitch .value .alt {
@@ -677,6 +687,7 @@
     min-width: 72px;
     text-align: center;
     font-variant-numeric: tabular-nums;
+    font-size: 0.95rem;
     font-weight: 600;
     line-height: 1.1;
   }
