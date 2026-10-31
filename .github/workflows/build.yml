@@ -42,12 +42,20 @@ jobs:
           npm run build
           npx cap sync android
 
+      - name: Version code
+        id: version
+        run: echo "code=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Build APK
         working-directory: web/android
         env:
           KEYSTORE_FILE: release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          VERSION_CODE: ${{ github.run_number }}
+          # A unix timestamp, not github.run_number: run_number resets if the workflow file is
+          # ever renamed/recreated (as happened going from dev-build.yml to this file), and
+          # Android refuses to install an APK whose versionCode is lower than what's already
+          # installed — even with a matching signature. A timestamp only ever increases.
+          VERSION_CODE: ${{ steps.version.outputs.code }}
           VERSION_NAME: 0.1.${{ github.run_number }}
         run: ./gradlew assembleRelease --stacktrace
 
