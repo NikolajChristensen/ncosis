@@ -11,7 +11,7 @@ const IDS_KEY = 'ncosis:songIds'
 const ACTIVE_JOB_KEY = 'ncosis:activeJob'
 const songKey = (id: string) => `ncosis:song:${id}`
 
-export interface ActiveJob {
+interface ActiveJob {
   songId: string
   jobHash: string
 }

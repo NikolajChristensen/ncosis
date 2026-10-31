@@ -1,6 +1,5 @@
-// Imports a backup archive produced by backend/tools/export_backup.py (see Phase 9 of
-// /home/musicmad/.claude/plans/validated-dreaming-sutherland.md) — the one-time path for
-// porting songs + settings off the old server. Fully offline, no network involved.
+// Imports a backup archive produced by backend/tools/export_backup.py (see AGENTS.md) — the
+// one-time path for porting songs + settings off the old server. Fully offline, no network involved.
 
 import { unzipSync } from 'fflate'
 import * as songStore from './songStore'

@@ -15,9 +15,9 @@ const OUTPUTS: [RegExp, string][] = [
   [/\brhythm\b/, 'rhythm'],
   [/\bno[\s_-]?guitar\b/, 'backing'],
 ]
-export const STEMS = new Set(OUTPUTS.map(([, stem]) => stem))
+const STEMS = new Set(OUTPUTS.map(([, stem]) => stem))
 
-export class MvsepError extends Error {}
+class MvsepError extends Error {}
 
 async function asJson(res: Response): Promise<any> {
   try {

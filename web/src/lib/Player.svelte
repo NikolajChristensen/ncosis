@@ -83,13 +83,10 @@
         loaded++
       }
       mix = Object.fromEntries(player.stems.map((s) => [s.name, { volume: s.volume, muted: s.muted, solo: s.solo }]))
-      const legacy = song.settings ? null : legacySettings()
-      applySettings(song.settings ?? legacy ?? {})
+      applySettings(song.settings ?? {})
       // Start at the loop's A marker, where practice usually resumes.
       if (loopA !== null) player.seek(loopA)
-      // Settings from the server are already saved; ones carried over from this device are not.
-      savedJson = legacy ? '' : JSON.stringify(currentSettings())
-      migratingLegacy = !!legacy
+      savedJson = JSON.stringify(currentSettings())
       ready = true
       // Autostart playback 2 seconds after the song opens.
       setTimeout(() => {
@@ -227,11 +224,10 @@
 
   const fmtSemitones = (st: number) => `${st > 0 ? '+' : ''}${st} st`
 
-  // Settings are saved to the server (shared by all devices) shortly after the last change.
+  // Settings are saved to this device shortly after the last change.
   const SAVE_DELAY_MS = 600
   let savedJson = ''
   let saveTimer: ReturnType<typeof setTimeout> | undefined
-  let migratingLegacy = false
 
   function currentSettings(): SongSettings {
     return {
@@ -260,10 +256,7 @@
     const json = JSON.stringify(settings)
     if (!ready || json === savedJson) return
     saveSettings(id, settings).then(
-      () => {
-        savedJson = json
-        if (migratingLegacy) clearLegacySettings()
-      },
+      () => (savedJson = json),
       (e) => console.warn('Could not save settings', e),
     )
   }
@@ -291,37 +284,6 @@
     practiceSpeed = s.practiceSpeed ?? null
     bpmOverride = s.bpm ?? null
     masterVolume = s.masterVolume ?? 1
-  }
-
-  // Before settings moved to the server, each device kept its own in localStorage.
-  const legacyKeys = () =>
-    [`mix:${id}`, `loop:${id}`, `pitch:${id}`, `pitch:${id}:practice`, `speed:${id}`, `speed:${id}:practice`].map(
-      (k) => `ncosis:${k}`,
-    )
-
-  function legacySettings(): SongSettings | null {
-    try {
-      const get = (k: string) => localStorage.getItem(`ncosis:${k}`)
-      if (!legacyKeys().some((k) => localStorage.getItem(k) !== null)) return null
-      const loop = JSON.parse(get(`loop:${id}`) ?? 'null')
-      return {
-        mix: JSON.parse(get(`mix:${id}`) ?? 'null') ?? undefined,
-        loop: loop ? { a: loop.a, b: loop.b, enabled: loop.enabled } : undefined,
-        semitones: Number(get(`pitch:${id}`)) || 0,
-        practiceSemitones: Number(get(`pitch:${id}:practice`)) || null,
-        speed: Number(get(`speed:${id}`)) || 100,
-        practiceSpeed: Number(get(`speed:${id}:practice`)) || null,
-      }
-    } catch {
-      return null
-    }
-  }
-
-  function clearLegacySettings() {
-    try {
-      for (const k of legacyKeys()) localStorage.removeItem(k)
-    } catch {}
-    migratingLegacy = false
   }
 
   const clampTime = (t: number) => Math.round(Math.max(0, Math.min(t, player.duration)) * 100) / 100
